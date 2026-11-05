@@ -4,6 +4,63 @@
 
 Giải pháp bật, tắt và khởi động lại HP t540 Windows IoT từ Android trong cùng LAN, không cần API hoặc máy chủ trung tâm.
 
+## Tải về
+
+- **[Tải APK Android 1.0.1](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/LanPowerStandalone-1.0.1-debug.apk)** — Android 8.0 trở lên, bản debug để thử nghiệm.
+- [Tải toàn bộ mã nguồn và bộ cài Windows ZIP](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip).
+- [Xem script cài Windows online](https://github.com/namnamthainguyen-ops/apklan/blob/main/install-online.ps1).
+- [Xem kết quả kiểm thử trên GitHub](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml).
+
+<a id="huong-dan-cai-dat"></a>
+
+## Cài nhanh
+
+Máy Windows cần Internet khi tải bộ cài online. Khi sử dụng, điện thoại và máy Windows phải cùng LAN; Wi-Fi cần cho phép các thiết bị liên lạc với nhau. Mỗi máy Windows cần cài agent một lần bằng quyền Administrator.
+
+### Bước 1 — Tạo khóa quản lý một lần
+
+Mở **Windows PowerShell → Run as administrator**, dán đoạn sau để tạo Management Key:
+
+```powershell
+$keyBytes = New-Object byte[] 32
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
+$key = [Convert]::ToBase64String($keyBytes)
+Write-Host $key
+```
+
+Lưu khóa vừa hiện ra ở nơi riêng tư. Dùng **cùng khóa này** cho APK và tất cả máy Windows thuộc cùng nhóm quản lý.
+
+### Bước 2 — Cài online trên từng máy Windows
+
+Mở **Windows PowerShell bằng quyền Administrator** trên máy client. Thay `DAN-KHOA-BASE64-VAO-DAY` bằng khóa ở bước 1, rồi chạy nguyên đoạn sau:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$key = 'DAN-KHOA-BASE64-VAO-DAY'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/install-online.ps1'
+$expected = '312E174FCEBBF8675D4944DA46A96D52AB61E41A62579D9C95F602CD040760BF'
+$file = Join-Path $env:TEMP ('lanpower-install-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
+if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $expected) { throw 'Installer checksum mismatch.' }
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $file -ManagementKey $key
+if ($LASTEXITCODE -ne 0) { throw 'Agent installation failed. Check the error above.' }
+```
+
+Khi cài thành công, PowerShell hiện `Standalone agent installed`. Agent tự chạy cùng Windows bằng Scheduled Task `LanPowerStandaloneAgent`; không cần mở app quản lý trên máy Windows.
+
+### Bước 3 — Cài APK và quản lý máy
+
+1. [Tải APK 1.0.1 trên điện thoại](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/LanPowerStandalone-1.0.1-debug.apk), cho phép trình duyệt hoặc trình quản lý tệp cài ứng dụng khi Android yêu cầu.
+2. Mở **LanPower Standalone**, nhập khóa bước 1 rồi chọn **Lưu khóa**.
+3. Kết nối điện thoại vào cùng LAN với máy client, chọn **Quét mạng LAN**.
+4. Khi máy xuất hiện, dùng **Bật**, **Tắt** hoặc **Restart**. Nút Bật cần cấu hình Wake-on-LAN trong BIOS và card mạng theo hướng dẫn bên dưới; máy vẫn cần cắm điện và cáp Ethernet.
+
+Nếu chưa quét thấy máy, kiểm tra khóa hai bên giống nhau, agent đã cài thành công, Wi-Fi không bật AP/client isolation và hai thiết bị cùng VLAN. Đồng hồ điện thoại và Windows cần lệch dưới 2 phút để lệnh tắt/restart được chấp nhận.
+
+Các phần tiếp theo hướng dẫn cài offline, cấu hình Wake-on-LAN và đóng băng ổ C bằng UWF.
+
 ## Kiến trúc
 
 ```text
@@ -19,7 +76,7 @@ Mỗi t540 cần cài standalone agent. Agent chạy bằng Scheduled Task dư�
 Trên máy quản trị, chạy:
 
 ```powershell
-.\client\New-ManagementKey.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\client\New-ManagementKey.ps1
 ```
 
 Lưu khóa được in ra. Dùng đúng cùng một khóa cho app và các máy thuộc cùng nhóm quản lý.
@@ -37,25 +94,13 @@ Trong Windows bật `Wake on Magic Packet` của card Ethernet nếu driver có 
 
 ## 3. Cài agent trên mỗi máy
 
-Mở PowerShell Administrator trong thư mục `client`:
+Để cài offline, tải [ZIP mã nguồn](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip), giải nén toàn bộ rồi mở PowerShell Administrator trong thư mục `client`. Giữ đủ ba tệp `Install-Agent.ps1`, `Install-Core.ps1` và `StandaloneAgent.ps1` cạnh nhau:
 
 ```powershell
-.\Install-Agent.ps1 -ManagementKey "KHOA-BASE64-DA-TAO"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-Agent.ps1 -ManagementKey "KHOA-BASE64-DA-TAO"
 ```
 
-Cài online bằng PowerShell Administrator. Tải script về file tạm, kiểm tra SHA-256 rồi mới chạy. Luôn dùng checksum hiện hành trong README này.
-
-```powershell
-$key = 'KHOA-BASE64-DA-TAO'
-$url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/install-online.ps1'
-$expected = '312E174FCEBBF8675D4944DA46A96D52AB61E41A62579D9C95F602CD040760BF'
-$file = Join-Path $env:TEMP 'lanpower-install.ps1'
-Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
-if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $expected) { throw 'Installer checksum mismatch.' }
-powershell.exe -ExecutionPolicy Bypass -File $file -ManagementKey $key
-```
-
-Script online tiếp tục kiểm tra SHA-256 của `StandaloneAgent.ps1` trước khi cài.
+Để cài online, dùng nguyên lệnh ở [Bước 2 — Cài online](#huong-dan-cai-dat) phía đầu trang. Lệnh tải installer về file tạm, kiểm tra SHA-256 rồi mới chạy. Installer tiếp tục kiểm tra SHA-256 của cả `StandaloneAgent.ps1` và `Install-Core.ps1` trước khi cài.
 
 Script sẽ:
 
@@ -82,14 +127,16 @@ SHA-256: 758B0E24F467455F14CE7A0F03B7B132E762D78698BD0CAA6A2E3CFF2C37B10F
 
 Chỉ đóng băng sau khi app phát hiện được máy và đã thử đủ Bật/Tắt/Restart.
 
+Nếu trước đó cài online, tải [ZIP mã nguồn](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip), giải nén và mở PowerShell Administrator trong thư mục `client` để có các script UWF bên dưới.
+
 ```powershell
-.\Uwf-Enable.ps1 -Restart
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Uwf-Enable.ps1 -Restart
 ```
 
 Nếu script vừa cài Windows Feature UWF, sau khi máy khởi động lại chạy lần hai:
 
 ```powershell
-.\Uwf-Enable.ps1 -OverlaySizeMB 1024 -Restart
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Uwf-Enable.ps1 -OverlaySizeMB 1024 -Restart
 ```
 
 Kiểm tra bằng `uwfmgr.exe get-config`.
@@ -97,7 +144,7 @@ Kiểm tra bằng `uwfmgr.exe get-config`.
 Để bảo trì:
 
 ```powershell
-.\Uwf-Disable.ps1 -Restart
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Uwf-Disable.ps1 -Restart
 ```
 
 ## Lưu ý bảo mật
