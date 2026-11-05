@@ -27,6 +27,7 @@ if (-not [Guid]::TryParse([string]$config.deviceId, [ref]$parsedId) -or
 }
 
 if ($PSCmdlet.ShouldProcess($InstallPath, 'Remove standalone agent and firewall rule')) {
+    Assert-LanPowerWritableSystem
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
     $ruleName = Get-LanPowerFirewallRuleName $TaskName ([int]$config.port)

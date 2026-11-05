@@ -1,0 +1,16 @@
+<resources>
+    <item name="add_room" type="id" />
+    <item name="refresh" type="id" />
+    <item name="back" type="id" />
+    <item name="room_name_input" type="id" />
+    <item name="room_key_input" type="id" />
+    <item name="room_card" type="id" />
+    <item name="device_card" type="id" />
+    <item name="device_select" type="id" />
+    <item name="select_all" type="id" />
+    <item name="action_wake" type="id" />
+    <item name="action_shutdown" type="id" />
+    <item name="action_restart" type="id" />
+    <item name="action_freeze" type="id" />
+    <item name="action_unfreeze" type="id" />
+</resources>

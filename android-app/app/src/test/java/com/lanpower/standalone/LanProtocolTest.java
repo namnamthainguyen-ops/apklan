@@ -9,6 +9,48 @@ import static org.junit.Assert.*;
 public final class LanProtocolTest {
     private static final String KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 
+    @Test public void roomKeysMatchIndependentNodeAndWindowsVectors() throws Exception {
+        assertEquals("VUnd9gqHWPnL3YsvZF69DuCPHFp4YrHzQbv+TVHKsuc=", LanProtocol.deriveRoomKey("ROOM0001"));
+        assertEquals("kLU0qzCKD7iBFMKXa8010x45Me8b/xIbLo/XH+co4yw=", LanProtocol.deriveRoomKey("ROOM0002"));
+        assertEquals("LY3NnHDCmfxmr6g2rW06pLqDykLRBhHXSG0UwxJDhMQ=", LanProtocol.deriveRoomKey("Ab12Cd34"));
+        assertEquals("cyzk0ZNRJdMHxC4GnzJbLzNOi8QHwfrM55eKrEVMuu8=", LanProtocol.deriveRoomKey("Ab12!@#$"));
+        assertEquals(LanProtocol.deriveRoomKey("ROOM0001"), LanProtocol.deriveRoomKey("  ROOM0001  "));
+        assertNotEquals(LanProtocol.deriveRoomKey("ROOM0001"), LanProtocol.deriveRoomKey("room0001"));
+    }
+
+    @Test public void roomKeysRejectInvalidLengthUnicodeAndInternalSpace() {
+        for (String invalid : new String[]{"", "1234567", "123456789", "Ab12 Cd3", "Phòng123", "Ａbc12345", "Ab12\tCd3"}) {
+            assertThrows(IllegalArgumentException.class, () -> LanProtocol.deriveRoomKey(invalid));
+        }
+    }
+
+    @Test public void stateSignatureBindsNonceDeviceVersionUwfAndCapabilities() throws Exception {
+        String canonical = LanProtocol.stateCanonical("nonce", "device", "1.1.0", "OFF (next ON)", "power,uwf");
+        String signature = LanProtocol.hmac(KEY, canonical);
+        assertTrue(LanProtocol.verify(KEY, canonical, signature));
+        for (String changed : new String[]{
+                LanProtocol.stateCanonical("other", "device", "1.1.0", "OFF (next ON)", "power,uwf"),
+                LanProtocol.stateCanonical("nonce", "other", "1.1.0", "OFF (next ON)", "power,uwf"),
+                LanProtocol.stateCanonical("nonce", "device", "1.0.0", "OFF (next ON)", "power,uwf"),
+                LanProtocol.stateCanonical("nonce", "device", "1.1.0", "ON", "power,uwf"),
+                LanProtocol.stateCanonical("nonce", "device", "1.1.0", "OFF (next ON)", "power")}) {
+            assertFalse(LanProtocol.verify(KEY, changed, signature));
+        }
+    }
+
+    @Test public void signedAckDetailCannotBeChangedOrReusedForAnotherRequest() throws Exception {
+        String signature = LanProtocol.hmac(KEY, "ack-detail\nrequest\naccepted\nPending restart");
+        assertTrue(LanProtocol.verifyAckDetail(KEY, "request", "accepted", "Pending restart", signature));
+        assertFalse(LanProtocol.verifyAckDetail(KEY, "other", "accepted", "Pending restart", signature));
+        assertFalse(LanProtocol.verifyAckDetail(KEY, "request", "rejected", "Pending restart", signature));
+        assertFalse(LanProtocol.verifyAckDetail(KEY, "request", "accepted", "Applied already", signature));
+    }
+
+    @Test public void freezeAndUnfreezeAreExplicitSignedActions() {
+        assertTrue(LanProtocol.commandCanonical("request", "device", "freeze", 1, "nonce").contains("\nfreeze\n"));
+        assertTrue(LanProtocol.commandCanonical("request", "device", "unfreeze", 1, "nonce").contains("\nunfreeze\n"));
+    }
+
     @Test public void hmacMatchesIndependentNodeVector() throws Exception {
         assertEquals("pn4gVeX+gg6Wjhr62xxvaKMEIO+JdCslrNO2GF13nR8=",
                 LanProtocol.hmac(KEY, "discover\nnonce-123"));

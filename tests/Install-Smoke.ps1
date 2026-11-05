@@ -45,6 +45,8 @@ function Test-AgentDiscovery {
             Assert-True ($reply.deviceId -eq $ExpectedDeviceId) 'Discovery returns the installation device ID.'
             $expected = Get-TestHmac $Key "discovery`n$nonce`n$($reply.deviceId)`n$($reply.hostname)`n$($reply.mac)"
             Assert-True ($reply.signature -ceq $expected) 'Discovery signature must match.'
+            $stateSignature = Get-TestHmac $Key "state`n$nonce`n$($reply.deviceId)`n$($reply.agentVersion)`n$($reply.uwf)`n$($reply.capabilities)"
+            Assert-True ($reply.stateSignature -ceq $stateSignature) 'UWF state and capabilities must be authenticated.'
             return
         }
         catch [Net.Sockets.SocketException] { Start-Sleep -Milliseconds 250 }
@@ -59,11 +61,8 @@ $taskName = "LanPowerSmoke-$testId"
 $portProbe = [Net.Sockets.UdpClient]::new(0)
 $port = ([Net.IPEndPoint]$portProbe.Client.LocalEndPoint).Port
 $portProbe.Dispose()
-$keyBytes = New-Object byte[] 32
-$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
-$rng.GetBytes($keyBytes)
-$rng.Dispose()
-$key = [Convert]::ToBase64String($keyBytes)
+$roomKey = 'RoomA123'
+$key = ConvertTo-LanPowerManagementKey -RoomKey $roomKey
 $ruleName = Get-LanPowerFirewallRuleName $taskName $port
 $offlineInstaller = Join-Path $repoRoot 'client\Install-Agent.ps1'
 $uninstaller = Join-Path $repoRoot 'client\Uninstall-Agent.ps1'
@@ -80,8 +79,10 @@ try {
     [void]$permissiveAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
         [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'), 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
     Set-Acl -LiteralPath $installPath -AclObject $permissiveAcl
-    & $offlineInstaller -ManagementKey $key -InstallPath $installPath -TaskName $taskName -Port $port
+    & $offlineInstaller -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port
     $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
+    Assert-True ($config.managementKey -ceq $key) 'Installer stores the derived room key.'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw) -notmatch $roomKey) 'Plain room key is not persisted.'
     $deviceId = $config.deviceId
     $task = Get-ScheduledTask -TaskName $taskName
     Assert-True ($task.Principal.UserId -in @('SYSTEM', 'S-1-5-18')) 'Agent task must run as SYSTEM.'
@@ -100,7 +101,7 @@ try {
     Assert-True ($config.deviceId -eq $deviceId) 'Reinstall preserves the saved Android device ID.'
     Test-AgentDiscovery $port $key $deviceId
     if ($IncludeOnline) {
-        & (Join-Path $repoRoot 'install-online.ps1') -ManagementKey $key -InstallPath $installPath -TaskName $taskName -Port $port
+        & (Join-Path $repoRoot 'install-online.ps1') -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port
         $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
         Assert-True ($config.deviceId -eq $deviceId) 'Online reinstall preserves device ID.'
         Assert-SecureAcl $installPath
@@ -110,7 +111,7 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $installPath)) 'Uninstall removes the dedicated installation directory.'
     Assert-True (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 'Uninstall removes the task.'
     Assert-True (-not (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue)) 'Uninstall removes the firewall rule.'
-    Write-Output 'INSTALLATION_SMOKE_TEST=PASS (ACL, SYSTEM task, firewall, discovery, stable reinstall, uninstall)'
+    Write-Output 'INSTALLATION_SMOKE_TEST=PASS (8-character room key, legacy reinstall, ACL, SYSTEM task, firewall, authenticated state, uninstall)'
 }
 finally {
     Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue

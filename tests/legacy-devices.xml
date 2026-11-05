@@ -1,0 +1,4 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="devices">[{"id":"00000000-0000-4000-8000-000000000004","hostname":"CI-L-04","ip":"10.0.2.2","mac":"02:00:00:00:00:04","uwf":"OFF"}]</string>
+</map>

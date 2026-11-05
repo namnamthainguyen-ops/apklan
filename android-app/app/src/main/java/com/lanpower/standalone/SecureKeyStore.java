@@ -26,21 +26,46 @@ final class SecureKeyStore {
     }
 
     void save(String value) throws Exception {
+        saveEncrypted(VALUE, IV, value, null);
+    }
+
+    void saveRoom(String roomId, String value) throws Exception {
+        saveEncrypted("room_" + roomId, "room_" + roomId + "_iv", value, roomId);
+    }
+
+    String loadRoom(String roomId) {
+        return loadEncrypted("room_" + roomId, "room_" + roomId + "_iv", roomId);
+    }
+
+    void deleteRoom(String roomId) {
+        if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .remove("room_" + roomId).remove("room_" + roomId + "_iv").commit()) {
+            throw new IllegalStateException("Không xóa được khóa mã hóa của phòng");
+        }
+    }
+
+    private void saveEncrypted(String valueName, String ivName, String value, String associatedRoom) throws Exception {
         SecretKey key = getOrCreateKey();
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, key);
+        if (associatedRoom != null) cipher.updateAAD(associatedRoom.getBytes(StandardCharsets.UTF_8));
         byte[] encrypted = cipher.doFinal(value.getBytes(StandardCharsets.UTF_8));
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString(VALUE, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-                .putString(IV, Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
-                .apply();
+        boolean saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(valueName, Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                .putString(ivName, Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
+                .commit();
+        if (!saved) throw new IllegalStateException("Không lưu được khóa mã hóa");
     }
 
     String load() {
+        return loadEncrypted(VALUE, IV, null);
+    }
+
+    private String loadEncrypted(String valueName, String ivName, String associatedRoom) {
         try {
             SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-            String encrypted = preferences.getString(VALUE, "");
-            String iv = preferences.getString(IV, "");
+            String encrypted = preferences.getString(valueName, "");
+            String iv = preferences.getString(ivName, "");
             if (encrypted.isEmpty() || iv.isEmpty()) return "";
             KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
             keyStore.load(null);
@@ -49,6 +74,7 @@ final class SecureKeyStore {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, entry.getSecretKey(),
                     new GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)));
+            if (associatedRoom != null) cipher.updateAAD(associatedRoom.getBytes(StandardCharsets.UTF_8));
             return new String(cipher.doFinal(Base64.decode(encrypted, Base64.NO_WRAP)), StandardCharsets.UTF_8);
         } catch (Exception ignored) {
             return "";

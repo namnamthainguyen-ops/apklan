@@ -5,11 +5,25 @@ import java.security.MessageDigest;
 import java.util.Base64;
 
 import javax.crypto.Mac;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
 /** Wire-format operations shared by the app and the plain JVM tests. */
 final class LanProtocol {
     private LanProtocol() { }
+
+    static String deriveRoomKey(String value) throws Exception {
+        if (value == null || !value.trim().matches("[\\x21-\\x7E]{8}")) {
+            throw new IllegalArgumentException("Key phòng phải đúng 8 ký tự ASCII hiển thị, không có khoảng trắng; phân biệt hoa thường");
+        }
+        PBEKeySpec specification = new PBEKeySpec(value.trim().toCharArray(),
+                "LanPower/RoomKey/v1".getBytes(StandardCharsets.UTF_8), 210000, 256);
+        try {
+            return Base64.getEncoder().encodeToString(SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                    .generateSecret(specification).getEncoded());
+        } finally { specification.clearPassword(); }
+    }
 
     static String normalizeKey(String value) {
         byte[] key = Base64.getDecoder().decode(value.trim());
@@ -44,7 +58,7 @@ final class LanProtocol {
         requireField(requestId);
         requireField(deviceId);
         requireField(nonce);
-        if (!"shutdown".equals(action) && !"restart".equals(action)) {
+        if (!"shutdown".equals(action) && !"restart".equals(action) && !"freeze".equals(action) && !"unfreeze".equals(action)) {
             throw new IllegalArgumentException("Unsupported action");
         }
         return "command\n" + requestId + "\n" + deviceId + "\n" + action + "\n" + timestamp + "\n" + nonce;
@@ -54,6 +68,22 @@ final class LanProtocol {
         requireField(requestId);
         if (!"accepted".equals(status) && !"rejected".equals(status)) return false;
         return verify(key, "ack\n" + requestId + "\n" + status, signature);
+    }
+
+    static String stateCanonical(String nonce, String deviceId, String agentVersion, String uwf, String capabilities) {
+        requireField(nonce);
+        requireField(deviceId);
+        requireField(agentVersion);
+        requireField(uwf);
+        requireField(capabilities);
+        return "state\n" + nonce + "\n" + deviceId + "\n" + agentVersion + "\n" + uwf + "\n" + capabilities;
+    }
+
+    static boolean verifyAckDetail(String key, String requestId, String status, String message, String signature) throws Exception {
+        requireField(requestId);
+        requireField(status);
+        if (message == null || message.length() > 2048) return false;
+        return verify(key, "ack-detail\n" + requestId + "\n" + status + "\n" + message, signature);
     }
 
     static byte[] magicPacket(String mac) {

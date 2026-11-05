@@ -15,15 +15,16 @@ function command(key, deviceId, overrides = {}) {
   value.signature = sign(key, `command\n${value.requestId}\n${value.deviceId}\n${value.action}\n${value.timestamp}\n${value.nonce}`);
   return value;
 }
-async function startAgent(t) {
+async function startAgent(t, options = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lanpower-agent-test-'));
   const socket = dgram.createSocket('udp4');
   socket.bind(0, '127.0.0.1'); await once(socket, 'listening');
   const port = socket.address().port;
   socket.close(); await once(socket, 'close');
-  const key = crypto.randomBytes(32).toString('base64');
+  const key = options.roomKey ? crypto.pbkdf2Sync(options.roomKey, 'LanPower/RoomKey/v1', 210000, 32, 'sha256').toString('base64') : crypto.randomBytes(32).toString('base64');
   const deviceId = crypto.randomUUID();
   await fs.writeFile(path.join(root, 'config.json'), JSON.stringify({ managementKey: key, deviceId, port }));
+  if (options.uwfFailure) await fs.writeFile(path.join(root, 'fail-uwf'), '1');
   const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'Agent-Harness.ps1'), '-AgentPath', path.join(__dirname, '..', 'client', 'StandaloneAgent.ps1'), '-TestRoot', root], { stdio: ['ignore', 'pipe', 'pipe'] });
   let output = ''; let errors = '';
   child.stderr.on('data', chunk => { errors += chunk; });
@@ -60,6 +61,8 @@ test('real agent ignores malformed, oversized, unsigned and wrongly signed disco
   const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
   assert.equal(reply.type, 'discovery'); assert.equal(reply.requestNonce, nonce); assert.equal(reply.deviceId, agent.deviceId);
   assert.equal(reply.signature, sign(agent.key, `discovery\n${nonce}\n${reply.deviceId}\n${reply.hostname}\n${reply.mac}`));
+  assert.equal(reply.capabilities, 'power,uwf');
+  assert.equal(reply.stateSignature, sign(agent.key, `state\n${nonce}\n${reply.deviceId}\n${reply.agentVersion}\n${reply.uwf}\n${reply.capabilities}`));
 });
 
 test('real agent rejects forged, stale, future and wrong-device commands; prevents nonce replay', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
@@ -75,6 +78,7 @@ test('real agent rejects forged, stale, future and wrong-device commands; preven
   const reply = await agent.exchange(unsupported, 3000);
   assert.equal(reply.status, 'rejected');
   assert.equal(reply.signature, sign(agent.key, `ack\n${unsupported.requestId}\nrejected`));
+  assert.equal(reply.detailSignature, sign(agent.key, `ack-detail\n${unsupported.requestId}\nrejected\n${reply.message}`));
   assert.equal(await agent.exchange(unsupported), null, 'replayed authenticated request must be ignored');
   assert.doesNotMatch(agent.output(), /TEST_POWER_ACTION/);
 });
@@ -86,8 +90,49 @@ for (const action of ['shutdown', 'restart']) {
     const reply = await agent.exchange(request, 3000);
     assert.equal(reply.status, 'accepted');
     assert.equal(reply.signature, sign(agent.key, `ack\n${request.requestId}\naccepted`));
-    const [code] = await once(agent.child, 'exit');
+    const code = agent.child.exitCode !== null ? agent.child.exitCode : (await once(agent.child, 'exit'))[0];
     assert.equal(code, 0, agent.errors());
     assert.match(agent.output(), new RegExp(`TEST_POWER_ACTION=${action}`));
   });
 }
+
+test('room keys isolate discovery and commands between rooms', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t, { roomKey: 'RoomA123' });
+  const otherKey = crypto.pbkdf2Sync('RoomB456', 'LanPower/RoomKey/v1', 210000, 32, 'sha256').toString('base64');
+  const nonce = crypto.randomUUID();
+  assert.equal(await agent.exchange({ type: 'discover', nonce, signature: sign(otherKey, `discover\n${nonce}`) }), null);
+  assert.equal(await agent.exchange(command(otherKey, agent.deviceId, { action: 'freeze' })), null);
+  const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
+  assert.equal(reply.deviceId, agent.deviceId);
+  assert.doesNotMatch(agent.output(), /TEST_UWF_ACTION/);
+});
+
+test('freeze and unfreeze execute only safe stubs, sign outcome and keep agent alive', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t);
+  for (const [action, state] of [['freeze', 'OFF (next ON)'], ['unfreeze', 'ON (next OFF)']]) {
+    const request = command(agent.key, agent.deviceId, { action });
+    const reply = await agent.exchange(request, 3000);
+    assert.equal(reply.status, 'accepted');
+    assert.match(reply.message, /Restart required/);
+    assert.equal(reply.detailSignature, sign(agent.key, `ack-detail\n${request.requestId}\naccepted\n${reply.message}`));
+    assert.match(agent.output(), new RegExp(`TEST_UWF_ACTION=${action}`));
+    assert.equal(agent.child.exitCode, null, 'UWF must not stop the listening loop');
+    const nonce = crypto.randomUUID();
+    const status = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
+    assert.equal(status.uwf, state);
+    assert.equal(status.stateSignature, sign(agent.key, `state\n${nonce}\n${status.deviceId}\n${status.agentVersion}\n${state}\n${status.capabilities}`));
+    assert.equal(await agent.exchange(request), null, 'UWF request replay must not reapply changes');
+  }
+});
+
+test('failed UWF operation returns signed rejection and agent remains available', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t, { uwfFailure: true });
+  const request = command(agent.key, agent.deviceId, { action: 'freeze' });
+  const reply = await agent.exchange(request, 3000);
+  assert.equal(reply.status, 'rejected');
+  assert.match(reply.message, /TEST_UWF_FAILURE/);
+  assert.equal(reply.detailSignature, sign(agent.key, `ack-detail\n${request.requestId}\nrejected\n${reply.message}`));
+  const nonce = crypto.randomUUID();
+  assert.equal((await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000)).deviceId, agent.deviceId);
+  assert.doesNotMatch(agent.output(), /TEST_POWER_ACTION|TEST_UWF_ACTION/);
+});

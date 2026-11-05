@@ -1,5 +1,60 @@
 Set-StrictMode -Version Latest
 
+function ConvertTo-LanPowerManagementKey {
+    param([Parameter(Mandatory)][string]$RoomKey)
+    if ($RoomKey -cnotmatch '\A[\x21-\x7E]{8}\z') {
+        throw 'Room Key must contain exactly 8 printable ASCII characters without spaces (case-sensitive).'
+    }
+    $salt = [Text.Encoding]::UTF8.GetBytes('LanPower/RoomKey/v1')
+    $password = [Text.Encoding]::UTF8.GetBytes($RoomKey)
+    $derive = [Security.Cryptography.Rfc2898DeriveBytes]::new($password, $salt, 210000, [Security.Cryptography.HashAlgorithmName]::SHA256)
+    try { return [Convert]::ToBase64String($derive.GetBytes(32)) }
+    finally { $derive.Dispose(); [Array]::Clear($password, 0, $password.Length) }
+}
+
+function Assert-LanPowerWritableSystem {
+    try {
+        $filter = Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Filter -ErrorAction Stop
+    }
+    catch { return } # UWF is optional; its provider is absent on ordinary Windows.
+    $active = $false
+    if ($filter.CurrentEnabled) {
+        try {
+            $volumes = @(Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Volume -ErrorAction Stop)
+            if (@($volumes | Where-Object { $_.CurrentSession -and $_.DriveLetter -in @('C:', 'C') }).Count -eq 0) {
+                throw 'C: volume state is missing.'
+            }
+            $active = @($volumes | Where-Object { $_.CurrentSession -and $_.Protected -and $_.DriveLetter -in @('C:', 'C') }).Count -gt 0
+        }
+        catch {
+            throw 'UWF_STATE_UNAVAILABLE: UWF is active but C: protection could not be checked. Check locally before installing the agent.'
+        }
+    }
+    if ($active) {
+        throw 'UWF_ACTIVE_DISABLE_AND_RESTART: Disable UWF and restart before installing or changing the agent, otherwise changes may disappear after reboot.'
+    }
+}
+
+function Initialize-LanPowerUwfFeature {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run PowerShell as Administrator.' }
+    Assert-LanPowerWritableSystem
+    $feature = Get-WindowsOptionalFeature -Online -FeatureName 'Client-UnifiedWriteFilter' -ErrorAction Stop
+    if ($feature.State -eq 'Enabled') {
+        Write-Host 'UWF feature is already installed. C: protection has not been changed.'
+        return
+    }
+    if ($feature.State -eq 'EnablePending') {
+        Write-Host 'UWF_RESTART_REQUIRED: Restart manually to finish installing the UWF feature.'
+        return
+    }
+    $dism = Join-Path $env:WINDIR 'System32\dism.exe'
+    $process = Start-Process -FilePath $dism -ArgumentList '/online','/enable-feature','/featureName:Client-DeviceLockdown','/featureName:Client-UnifiedWriteFilter','/All','/NoRestart' -WindowStyle Hidden -Wait -PassThru
+    if ($process.ExitCode -notin @(0, 3010)) { throw "UWF_PREPARE_FAILED: DISM exit code $($process.ExitCode). Check whether this Windows edition supports UWF." }
+    Write-Host 'UWF feature prepared. Restart manually before using remote Freeze. C: protection has not been changed.'
+}
+
 function Get-LanPowerInstallPath {
     param([Parameter(Mandatory)][string]$Path)
     $fullPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
@@ -69,23 +124,31 @@ function Get-LanPowerFirewallRuleName {
 }
 
 function Invoke-LanPowerInstall {
+    [CmdletBinding(DefaultParameterSetName = 'RoomKey')]
     param(
         [Parameter(Mandatory)][string]$SourceAgent,
-        [Parameter(Mandatory)][string]$ManagementKey,
+        [Parameter(Mandatory, ParameterSetName = 'RoomKey')][string]$RoomKey,
+        [Parameter(Mandatory, ParameterSetName = 'ManagementKey')][string]$ManagementKey,
         [Parameter(Mandatory)][string]$InstallPath,
         [ValidatePattern('^[A-Za-z0-9_.-]{1,100}$')][string]$TaskName = 'LanPowerStandaloneAgent',
-        [ValidateRange(1024, 65535)][int]$Port = 17840
+        [ValidateRange(1024, 65535)][int]$Port = 17840,
+        [switch]$PrepareUwf
     )
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         throw 'Run PowerShell as Administrator.'
     }
+    if ($PSCmdlet.ParameterSetName -eq 'RoomKey') {
+        $ManagementKey = ConvertTo-LanPowerManagementKey $RoomKey
+    }
     try { $keyBytes = [Convert]::FromBase64String($ManagementKey) }
     catch { throw 'Management Key is not valid Base64.' }
     if ($keyBytes.Length -ne 32) { throw 'Management Key must contain exactly 32 bytes.' }
     if (-not (Test-Path -LiteralPath $SourceAgent -PathType Leaf)) { throw 'StandaloneAgent.ps1 was not found.' }
     $InstallPath = Get-LanPowerInstallPath $InstallPath
+    Assert-LanPowerWritableSystem
+    if ($PrepareUwf) { Initialize-LanPowerUwfFeature }
     New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
     Set-LanPowerDirectorySecurity $InstallPath
     $configPath = Join-Path $InstallPath 'config.json'

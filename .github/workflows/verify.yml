@@ -33,7 +33,7 @@ jobs:
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors)
             if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
           }
-      - name: Agent HMAC and UDP integration tests
+      - name: Room-key derivation, authenticated state and UDP power/UWF integration tests
         run: node --test --test-concurrency=1 tests/*.test.js
       - name: Install, verify SYSTEM task and firewall, reinstall, uninstall
         shell: powershell
@@ -54,6 +54,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Validate Android integration harness syntax
+        run: |
+          python3 -m py_compile tests/mock-lan-agent.py tests/android-ui-smoke.py
+          bash -n tests/android-launch.sh
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
@@ -89,7 +93,7 @@ jobs:
     name: Android emulator API ${{ matrix.api }}
     needs: android
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -105,7 +109,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Install and launch APK
+      - name: Room discovery, offline persistence, bulk power/UWF and APK upgrade
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api }}

@@ -7,12 +7,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.0.1'
+$AgentVersion = '1.1.0'
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
 $usedNonces = @{}
 $script:UwfState = 'unknown'
+$script:UwfAvailable = $false
 $script:LastUwfCheck = [DateTime]::MinValue
 
 function Write-DebugLog {
@@ -76,14 +77,78 @@ function Get-UwfState {
         return $script:UwfState
     }
     try {
+        $uwf = Join-Path $env:WINDIR 'System32\uwfmgr.exe'
+        if (-not (Test-Path -LiteralPath $uwf)) { throw 'UWF_NOT_INSTALLED' }
         $filter = Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Filter -ErrorAction Stop
-        if ($filter.CurrentEnabled) { $script:UwfState = 'ON' }
-        elseif ($filter.NextEnabled) { $script:UwfState = 'OFF (next ON)' }
-        else { $script:UwfState = 'OFF' }
+        $volumes = @(Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Volume -ErrorAction Stop |
+            Where-Object { $_.DriveLetter -in @('C:', 'C') })
+        $currentProtected = @($volumes | Where-Object { $_.CurrentSession -and $_.Protected }).Count -gt 0
+        $nextProtected = @($volumes | Where-Object { -not $_.CurrentSession -and $_.Protected }).Count -gt 0
+        $current = if ($filter.CurrentEnabled -and $currentProtected) { 'ON' } else { 'OFF' }
+        $next = if ($filter.NextEnabled -and $nextProtected) { 'ON' } else { 'OFF' }
+        $script:UwfState = "$current (next $next)"
+        $script:UwfAvailable = $true
     }
-    catch { $script:UwfState = 'not available' }
+    catch { $script:UwfState = 'UWF_NOT_INSTALLED'; $script:UwfAvailable = $false }
     $script:LastUwfCheck = [DateTime]::UtcNow
     return $script:UwfState
+}
+
+function Get-UwfCapabilities {
+    [void](Get-UwfState)
+    if ($script:UwfAvailable) { return 'power,uwf' }
+    return 'power'
+}
+
+function Invoke-UwfCommand {
+    param([string]$Tool, [string[]]$Arguments)
+    $output = & $Tool @Arguments 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "UWF_COMMAND_FAILED: $($Arguments -join ' ') (exit $LASTEXITCODE)."
+    }
+}
+
+function Invoke-UwfAction {
+    param([ValidateSet('freeze', 'unfreeze')][string]$Action)
+    $uwf = Join-Path $env:WINDIR 'System32\uwfmgr.exe'
+    if (-not (Test-Path -LiteralPath $uwf)) {
+        throw 'UWF_NOT_INSTALLED: Run client/Prepare-Uwf.ps1 as Administrator, then restart manually.'
+    }
+    try {
+        $filter = Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Filter -ErrorAction Stop
+        $volumes = @(Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Volume -ErrorAction Stop |
+            Where-Object { $_.DriveLetter -in @('C:', 'C') })
+    }
+    catch { throw 'UWF_NOT_INSTALLED: UWF management provider is unavailable. Prepare the feature and restart manually.' }
+    $nextProtected = @($volumes | Where-Object { -not $_.CurrentSession -and $_.Protected }).Count -gt 0
+    if ($Action -eq 'freeze') {
+        # Preserve an administrator's existing overlay policy. Initialize only an
+        # unusably small overlay while the filter is currently disabled.
+        if (-not $filter.CurrentEnabled) {
+            $overlay = $null
+            try {
+                $overlay = Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_OverlayConfig -Filter 'CurrentSession = false' -ErrorAction Stop |
+                    Select-Object -First 1
+            }
+            catch { } # Default UWF overlay configuration remains in effect.
+            if ($overlay -and [int64]$overlay.MaximumSize -lt 512) {
+                Invoke-UwfCommand -Tool $uwf -Arguments @('overlay', 'set-size', '1024')
+            }
+        }
+        if (-not $nextProtected) { Invoke-UwfCommand -Tool $uwf -Arguments @('volume', 'protect', 'C:') }
+        if (-not $filter.NextEnabled) { Invoke-UwfCommand -Tool $uwf -Arguments @('filter', 'enable') }
+    }
+    elseif ($nextProtected) {
+        # Do not disable the global filter: other protected volumes keep their policy.
+        Invoke-UwfCommand -Tool $uwf -Arguments @('volume', 'unprotect', 'C:')
+    }
+    $script:LastUwfCheck = [DateTime]::MinValue
+    $state = Get-UwfState
+    $expectedNext = if ($Action -eq 'freeze') { 'ON' } else { 'OFF' }
+    if ($state -notlike "*next $expectedNext)*") {
+        throw "UWF_VERIFY_FAILED: C: is $state after $Action. Check the device locally before restarting."
+    }
+    return "UWF $Action scheduled for C:. Restart required; no automatic reboot. C: $state"
 }
 
 function Send-JsonDatagram {
@@ -103,12 +168,14 @@ function Send-Acknowledgement {
         [string]$Message
     )
     $signature = Get-HmacBase64 $Config.managementKey "ack`n$RequestId`n$Status"
+    $detailSignature = Get-HmacBase64 $Config.managementKey "ack-detail`n$RequestId`n$Status`n$Message"
     Send-JsonDatagram -Client $Client -Remote $Remote -Value ([ordered]@{
         type = 'ack'
         requestId = $RequestId
         status = $Status
         message = $Message
         signature = $signature
+        detailSignature = $detailSignature
     })
 }
 
@@ -161,6 +228,9 @@ try {
                         continue
                     }
                     $responseSignature = Get-HmacBase64 $config.managementKey "discovery`n$($message.nonce)`n$($config.deviceId)`n$hostname`n$mac"
+                    $uwfState = Get-UwfState
+                    $capabilities = Get-UwfCapabilities
+                    $stateSignature = Get-HmacBase64 $config.managementKey "state`n$($message.nonce)`n$($config.deviceId)`n$AgentVersion`n$uwfState`n$capabilities"
                     Send-JsonDatagram -Client $udp -Remote $remote -Value ([ordered]@{
                         type = 'discovery'
                         requestNonce = $message.nonce
@@ -168,7 +238,9 @@ try {
                         hostname = $hostname
                         mac = $mac
                         agentVersion = $AgentVersion
-                        uwf = Get-UwfState
+                        uwf = $uwfState
+                        capabilities = $capabilities
+                        stateSignature = $stateSignature
                         signature = $responseSignature
                     })
                     continue
@@ -191,8 +263,21 @@ try {
                 if (-not (Test-FixedTimeEqual $message.signature $expected)) { continue }
                 $usedNonces[[string]$message.nonce] = $now
 
-                if ($message.action -notin @('shutdown', 'restart')) {
+                if ($message.action -notin @('shutdown', 'restart', 'freeze', 'unfreeze')) {
                     Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'rejected' -Message 'Unsupported action.'
+                    continue
+                }
+                if ($message.action -in @('freeze', 'unfreeze')) {
+                    try {
+                        $result = Invoke-UwfAction -Action $message.action
+                        Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'accepted' -Message $result
+                    }
+                    catch {
+                        $script:LastUwfCheck = [DateTime]::MinValue
+                        $failure = [string]$_.Exception.Message
+                        if ($failure.Length -gt 512) { $failure = $failure.Substring(0, 512) }
+                        Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'rejected' -Message $failure
+                    }
                     continue
                 }
                 Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'accepted' -Message 'Power action accepted.'
