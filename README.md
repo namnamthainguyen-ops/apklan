@@ -1,4 +1,6 @@
-# LanPower Standalone 1.0
+# LanPower Standalone 1.0.1
+
+[![Verify LAN Power](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml/badge.svg)](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml)
 
 Giải pháp bật, tắt và khởi động lại HP t540 Windows IoT từ Android trong cùng LAN, không cần API hoặc máy chủ trung tâm.
 
@@ -41,12 +43,12 @@ Mở PowerShell Administrator trong thư mục `client`:
 .\Install-Agent.ps1 -ManagementKey "KHOA-BASE64-DA-TAO"
 ```
 
-Sau khi repository được xuất bản, có thể cài online bằng PowerShell Administrator. Tải script về file tạm, kiểm tra SHA-256 rồi mới chạy; không dùng `irm | iex`. Lệnh chính xác và checksum hiện hành được ghi trong phần Releases/README của repository.
+Cài online bằng PowerShell Administrator. Tải script về file tạm, kiểm tra SHA-256 rồi mới chạy. Luôn dùng checksum hiện hành trong README này.
 
 ```powershell
 $key = 'KHOA-BASE64-DA-TAO'
 $url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/install-online.ps1'
-$expected = '4A540525C07CE8BD7870083E1247909E9D16EFAA7345DDD68C3D7637131B4D13'
+$expected = '312E174FCEBBF8675D4944DA46A96D52AB61E41A62579D9C95F602CD040760BF'
 $file = Join-Path $env:TEMP 'lanpower-install.ps1'
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
 if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $expected) { throw 'Installer checksum mismatch.' }
@@ -64,7 +66,7 @@ Script sẽ:
 
 ## 4. Cài APK
 
-Cài `LanPowerStandalone-debug.apk` lên điện thoại Android 8.0 trở lên. Mở app, nhập Management Key và chọn `Quét mạng LAN`.
+Cài APK lên điện thoại Android 8.0 trở lên. Mở app, nhập Management Key và chọn `Quét mạng LAN`.
 
 APK debug trong repository: `release/LanPowerStandalone-1.0.0-debug.apk`
 
@@ -73,6 +75,8 @@ SHA-256: 586EC9A1428F10143D82CDF31C91113EDC039438FFAA83FD14D4B18E61EEF6E7
 ```
 
 Điện thoại và t540 phải ở cùng broadcast domain. Wi-Fi không được bật AP/client isolation. Nếu Wi-Fi và Ethernet nằm ở hai VLAN khác nhau, router phải chuyển tiếp broadcast hoặc cần đặt chúng vào cùng VLAN.
+
+Đồng hồ điện thoại và Windows cần lệch dưới 2 phút để lệnh có timestamp được chấp nhận.
 
 ## 5. Đóng băng ổ C
 
@@ -106,6 +110,24 @@ Kiểm tra bằng `uwfmgr.exe get-config`.
 - Không có server đồng nghĩa không có audit log tập trung; app chỉ xác nhận agent đã nhận lệnh.
 
 ## Kiểm thử trước triển khai
+
+GitHub Actions tự chạy khi push vào `main`, khi mở pull request hoặc bấm `Run workflow` trong tab [Actions](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml). Mỗi lượt tạo APK mới, báo cáo unit test/lint và ảnh màn hình máy ảo trong mục Artifacts.
+
+- Windows PowerShell 5.1: phân tích cú pháp mọi script, kiểm tra HMAC và gửi UDP thật tới bản agent thử nghiệm với hàm tắt máy được thay bằng bộ ghi nhận.
+- Giao thức: khóa sai, chữ ký sai, gói lỗi, timestamp quá hạn, replay, sai thiết bị và action không hỗ trợ.
+- Installer: cài trên Windows runner tạm, xác nhận Scheduled Task SYSTEM, firewall `LocalSubnet`, ACL, cài lại và gỡ bỏ.
+- Android: unit test cho code giao thức thực tế, lint và build APK từ source.
+- Máy ảo Android API 26 và 35: cài APK, mở Activity, lưu khóa mã hóa trong Keystore, tải lại khóa sau khi khởi động lại app, quét LAN, lưu logcat/UI XML/ảnh màn hình.
+
+Chạy kiểm thử giao thức cục bộ trên Windows:
+
+```powershell
+npm test
+```
+
+`tests/Install-Smoke.ps1` thay đổi Scheduled Task/firewall trên máy chạy, chỉ dành cho Windows runner thử nghiệm có quyền Administrator. Các bài kiểm thử tự động không thực hiện tắt/restart máy thật và không bật UWF.
+
+Giới hạn: GitHub-hosted runner không nằm trong LAN của bạn và không có BIOS/NIC HP t540 hoặc Windows IoT UWF. Kết quả xanh trên CI chưa xác nhận Wake-on-LAN từ S5, Wi-Fi/VLAN thực tế hoặc việc hoàn nguyên ổ C.
 
 Pilot một t540:
 

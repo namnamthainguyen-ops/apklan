@@ -3,14 +3,12 @@ package com.lanpower.standalone;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.text.InputType;
-import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,6 +21,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.net.DatagramPacket;
@@ -46,9 +45,6 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-
 public final class MainActivity extends Activity {
     private static final int AGENT_PORT = 17840;
     private static final int WOL_PORT = 9;
@@ -68,6 +64,11 @@ public final class MainActivity extends Activity {
     private ProgressBar progress;
     private SecureKeyStore secureKeyStore;
     private volatile String activeKey = "";
+    private volatile DatagramSocket activeSocket;
+    private volatile boolean destroyed;
+    private boolean busy;
+    private Button saveButton;
+    private Button scanButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,6 +83,9 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        destroyed = true;
+        DatagramSocket socket = activeSocket;
+        if (socket != null) socket.close();
         executor.shutdownNow();
         super.onDestroy();
     }
@@ -109,14 +113,14 @@ public final class MainActivity extends Activity {
 
         LinearLayout buttons = new LinearLayout(this);
         buttons.setOrientation(LinearLayout.HORIZONTAL);
-        Button save = actionButton("Lưu khóa", BLUE);
-        save.setOnClickListener(view -> saveKey());
-        buttons.addView(save, weightedWrap());
-        Button scan = actionButton("Quét mạng LAN", GREEN);
-        scan.setOnClickListener(view -> scanNetwork());
+        saveButton = actionButton("Lưu khóa", BLUE);
+        saveButton.setOnClickListener(view -> saveKey());
+        buttons.addView(saveButton, weightedWrap());
+        scanButton = actionButton("Quét mạng LAN", GREEN);
+        scanButton.setOnClickListener(view -> scanNetwork());
         LinearLayout.LayoutParams scanParams = weightedWrap();
         scanParams.setMarginStart(dp(8));
-        buttons.addView(scan, scanParams);
+        buttons.addView(scanButton, scanParams);
         controls.addView(buttons, matchWrap());
 
         statusText = label("App hoạt động trực tiếp, không cần máy chủ.", 13, Color.DKGRAY);
@@ -143,8 +147,7 @@ public final class MainActivity extends Activity {
     private boolean saveKey() {
         String value = keyInput.getText().toString().trim();
         try {
-            byte[] decoded = Base64.decode(value, Base64.DEFAULT);
-            if (decoded.length != 32) throw new IllegalArgumentException("Khóa phải có 32 byte");
+            value = LanProtocol.normalizeKey(value);
             secureKeyStore.save(value);
             activeKey = value;
             statusText.setText("Đã lưu Management Key bằng Android Keystore.");
@@ -156,7 +159,9 @@ public final class MainActivity extends Activity {
     }
 
     private void scanNetwork() {
+        if (busy || destroyed) return;
         if (!saveKey()) return;
+        final String operationKey = activeKey;
         for (Device device : devices.values()) device.online = false;
         setBusy(true, "Đang phát hiện agent trong LAN…");
         executor.execute(() -> {
@@ -168,15 +173,15 @@ public final class MainActivity extends Activity {
                     lock.setReferenceCounted(false);
                     lock.acquire();
                 }
-                List<Device> found = discover(activeKey);
-                runOnUiThread(() -> {
+                List<Device> found = discover(operationKey);
+                postResult(() -> {
                     for (Device device : found) devices.put(device.id, device);
                     saveDevices();
                     renderDevices();
                     setBusy(false, "Đã tìm thấy " + found.size() + " máy trong lần quét này.");
                 });
             } catch (Exception error) {
-                runOnUiThread(() -> {
+                postResult(() -> {
                     renderDevices();
                     setBusy(false, "Quét thất bại: " + error.getMessage());
                 });
@@ -191,52 +196,61 @@ public final class MainActivity extends Activity {
         JSONObject request = new JSONObject()
                 .put("type", "discover")
                 .put("nonce", nonce)
-                .put("signature", hmac(key, "discover\n" + nonce));
+                .put("signature", LanProtocol.hmac(key, "discover\n" + nonce));
         byte[] requestBytes = request.toString().getBytes(StandardCharsets.UTF_8);
         Map<String, Device> found = new LinkedHashMap<>();
 
-        try (DatagramSocket socket = new DatagramSocket()) {
+        try (DatagramSocket socket = openSocket()) {
             socket.setBroadcast(true);
             socket.setSoTimeout(350);
             for (InetAddress broadcast : broadcastAddresses()) {
                 socket.send(new DatagramPacket(requestBytes, requestBytes.length, broadcast, AGENT_PORT));
             }
-            long deadline = System.currentTimeMillis() + 2600;
-            while (System.currentTimeMillis() < deadline) {
+            long deadline = System.nanoTime() + 2_600_000_000L;
+            while (System.nanoTime() < deadline && !Thread.currentThread().isInterrupted()) {
                 try {
-                    byte[] buffer = new byte[8192];
+                    byte[] buffer = new byte[8193];
                     DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                     socket.receive(packet);
+                    if (packet.getLength() > 8192 || packet.getPort() != AGENT_PORT || !(packet.getAddress() instanceof Inet4Address)) continue;
                     String json = new String(packet.getData(), packet.getOffset(), packet.getLength(), StandardCharsets.UTF_8);
                     JSONObject response = new JSONObject(json);
                     if (!"discovery".equals(response.optString("type"))) continue;
                     if (!nonce.equals(response.optString("requestNonce"))) continue;
-                    String canonical = "discovery\n" + nonce + "\n" + response.optString("deviceId") + "\n"
-                            + response.optString("hostname") + "\n" + response.optString("mac");
-                    if (!constantTimeEquals(response.optString("signature"), hmac(key, canonical))) continue;
+                    String canonical = LanProtocol.discoveryCanonical(nonce, response.optString("deviceId"),
+                            response.optString("hostname"), response.optString("mac"));
+                    if (!LanProtocol.verify(key, canonical, response.optString("signature"))) continue;
                     Device device = Device.fromDiscovery(response, packet.getAddress().getHostAddress());
                     device.online = true;
                     found.put(device.id, device);
                 } catch (SocketTimeoutException ignored) { }
+                catch (JSONException | IllegalArgumentException invalidDatagram) {
+                    // An unrelated/malformed UDP reply must not abort discovery of other agents.
+                }
             }
+        } finally {
+            activeSocket = null;
         }
         return new ArrayList<>(found.values());
     }
 
     private void wake(Device device) {
+        if (busy || destroyed) return;
         setBusy(true, "Đang gửi Magic Packet tới " + device.hostname + "…");
         executor.execute(() -> {
             try {
-                byte[] packet = magicPacket(device.mac);
-                try (DatagramSocket socket = new DatagramSocket()) {
+                byte[] packet = LanProtocol.magicPacket(device.mac);
+                try (DatagramSocket socket = openSocket()) {
                     socket.setBroadcast(true);
                     for (InetAddress broadcast : broadcastAddresses()) {
                         socket.send(new DatagramPacket(packet, packet.length, broadcast, WOL_PORT));
                     }
                 }
-                runOnUiThread(() -> setBusy(false, "Đã gửi Wake-on-LAN tới " + device.hostname + "."));
+                postResult(() -> setBusy(false, "Đã gửi Wake-on-LAN tới " + device.hostname + "."));
             } catch (Exception error) {
-                runOnUiThread(() -> setBusy(false, "Wake-on-LAN thất bại: " + error.getMessage()));
+                postResult(() -> setBusy(false, "Wake-on-LAN thất bại: " + error.getMessage()));
+            } finally {
+                activeSocket = null;
             }
         });
     }
@@ -251,14 +265,16 @@ public final class MainActivity extends Activity {
     }
 
     private void sendCommand(Device device, String action, String label) {
+        if (busy || destroyed) return;
         if (!saveKey()) return;
+        final String operationKey = activeKey;
         setBusy(true, "Đang gửi lệnh " + label.toLowerCase() + "…");
         executor.execute(() -> {
             try {
                 String requestId = UUID.randomUUID().toString();
                 String nonce = UUID.randomUUID().toString().replace("-", "");
                 long timestamp = Instant.now().getEpochSecond();
-                String canonical = "command\n" + requestId + "\n" + device.id + "\n" + action + "\n" + timestamp + "\n" + nonce;
+                String canonical = LanProtocol.commandCanonical(requestId, device.id, action, timestamp, nonce);
                 JSONObject request = new JSONObject()
                         .put("type", "command")
                         .put("requestId", requestId)
@@ -266,26 +282,40 @@ public final class MainActivity extends Activity {
                         .put("action", action)
                         .put("timestamp", timestamp)
                         .put("nonce", nonce)
-                        .put("signature", hmac(activeKey, canonical));
+                        .put("signature", LanProtocol.hmac(operationKey, canonical));
                 byte[] bytes = request.toString().getBytes(StandardCharsets.UTF_8);
-                try (DatagramSocket socket = new DatagramSocket()) {
-                    socket.setSoTimeout(3500);
+                try (DatagramSocket socket = openSocket()) {
                     InetAddress address = InetAddress.getByName(device.ip);
+                    // A connected UDP socket only accepts replies from this agent's IP and port.
+                    socket.connect(address, AGENT_PORT);
                     socket.send(new DatagramPacket(bytes, bytes.length, address, AGENT_PORT));
-                    byte[] responseBuffer = new byte[4096];
-                    DatagramPacket responsePacket = new DatagramPacket(responseBuffer, responseBuffer.length);
-                    socket.receive(responsePacket);
-                    JSONObject response = new JSONObject(new String(responsePacket.getData(), responsePacket.getOffset(), responsePacket.getLength(), StandardCharsets.UTF_8));
-                    String status = response.optString("status");
-                    String expected = hmac(activeKey, "ack\n" + requestId + "\n" + status);
-                    if (!requestId.equals(response.optString("requestId")) || !constantTimeEquals(response.optString("signature"), expected)) {
-                        throw new SecurityException("Phản hồi agent không hợp lệ");
+                    long deadline = System.nanoTime() + 3_500_000_000L;
+                    boolean acknowledged = false;
+                    while (System.nanoTime() < deadline && !Thread.currentThread().isInterrupted()) {
+                        socket.setSoTimeout((int) Math.max(1, (deadline - System.nanoTime()) / 1_000_000L));
+                        byte[] responseBuffer = new byte[4097];
+                        DatagramPacket responsePacket = new DatagramPacket(responseBuffer, responseBuffer.length);
+                        socket.receive(responsePacket);
+                        if (responsePacket.getLength() > 4096) continue;
+                        try {
+                            JSONObject response = new JSONObject(new String(responsePacket.getData(), responsePacket.getOffset(), responsePacket.getLength(), StandardCharsets.UTF_8));
+                            String status = response.optString("status");
+                            if (!"ack".equals(response.optString("type")) || !requestId.equals(response.optString("requestId")) ||
+                                    !LanProtocol.verifyAcknowledgement(operationKey, requestId, status, response.optString("signature"))) continue;
+                            if (!"accepted".equals(status)) throw new SecurityException("Agent từ chối lệnh");
+                            acknowledged = true;
+                            break;
+                        } catch (JSONException | IllegalArgumentException invalidDatagram) {
+                            // Wait for the authenticated reply rather than failing on unrelated data.
+                        }
                     }
-                    if (!"accepted".equals(status)) throw new SecurityException(response.optString("message", "Agent từ chối lệnh"));
+                    if (!acknowledged) throw new SocketTimeoutException("Hết thời gian chờ phản hồi agent");
                 }
-                runOnUiThread(() -> setBusy(false, "Agent đã nhận lệnh " + label.toLowerCase() + "."));
+                postResult(() -> setBusy(false, "Agent đã nhận lệnh " + label.toLowerCase() + "."));
             } catch (Exception error) {
-                runOnUiThread(() -> setBusy(false, "Không gửi được lệnh: " + error.getMessage()));
+                postResult(() -> setBusy(false, "Không gửi được lệnh: " + error.getMessage()));
+            } finally {
+                activeSocket = null;
             }
         });
     }
@@ -306,30 +336,20 @@ public final class MainActivity extends Activity {
         return addresses;
     }
 
-    private static byte[] magicPacket(String mac) {
-        String hex = mac.replaceAll("[^0-9A-Fa-f]", "");
-        if (hex.length() != 12) throw new IllegalArgumentException("MAC không hợp lệ");
-        byte[] macBytes = new byte[6];
-        for (int i = 0; i < 6; i++) macBytes[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
-        byte[] packet = new byte[102];
-        for (int i = 0; i < 6; i++) packet[i] = (byte) 0xff;
-        for (int repeat = 0; repeat < 16; repeat++) System.arraycopy(macBytes, 0, packet, 6 + repeat * 6, 6);
-        return packet;
+    private DatagramSocket openSocket() throws Exception {
+        DatagramSocket socket = new DatagramSocket();
+        activeSocket = socket;
+        if (destroyed) {
+            socket.close();
+            throw new IllegalStateException("Activity closed");
+        }
+        return socket;
     }
 
-    private static String hmac(String keyBase64, String value) throws Exception {
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(new SecretKeySpec(Base64.decode(keyBase64, Base64.DEFAULT), "HmacSHA256"));
-        return Base64.encodeToString(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)), Base64.NO_WRAP);
-    }
-
-    private static boolean constantTimeEquals(String left, String right) {
-        byte[] a = left.getBytes(StandardCharsets.US_ASCII);
-        byte[] b = right.getBytes(StandardCharsets.US_ASCII);
-        if (a.length != b.length) return false;
-        int difference = 0;
-        for (int i = 0; i < a.length; i++) difference |= a[i] ^ b[i];
-        return difference == 0;
+    private void postResult(Runnable result) {
+        runOnUiThread(() -> {
+            if (!destroyed) result.run();
+        });
     }
 
     private void renderDevices() {
@@ -375,16 +395,17 @@ public final class MainActivity extends Activity {
 
         LinearLayout actions = new LinearLayout(this);
         Button wake = actionButton("Bật", GREEN);
+        wake.setEnabled(!busy);
         wake.setOnClickListener(view -> wake(device));
         actions.addView(wake, weightedWrap());
         Button shutdown = actionButton("Tắt", RED);
-        shutdown.setEnabled(device.online);
+        shutdown.setEnabled(!busy && device.online);
         shutdown.setOnClickListener(view -> confirmCommand(device, "shutdown", "Tắt máy"));
         LinearLayout.LayoutParams middle = weightedWrap();
         middle.setMarginStart(dp(7));
         actions.addView(shutdown, middle);
         Button restart = actionButton("Restart", AMBER);
-        restart.setEnabled(device.online);
+        restart.setEnabled(!busy && device.online);
         restart.setOnClickListener(view -> confirmCommand(device, "restart", "Khởi động lại"));
         LinearLayout.LayoutParams end = weightedWrap();
         end.setMarginStart(dp(7));
@@ -411,8 +432,13 @@ public final class MainActivity extends Activity {
     }
 
     private void setBusy(boolean busy, String text) {
+        this.busy = busy;
+        keyInput.setEnabled(!busy);
+        saveButton.setEnabled(!busy);
+        scanButton.setEnabled(!busy);
         progress.setVisibility(busy ? View.VISIBLE : View.GONE);
         statusText.setText(text);
+        renderDevices();
     }
 
     private Button actionButton(String text, int color) {
