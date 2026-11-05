@@ -73,7 +73,7 @@ function Get-PrimaryMacAddress {
 }
 
 function Get-UwfState {
-    if (([DateTime]::UtcNow - $script:LastUwfCheck).TotalMinutes -lt 10) {
+    if (([DateTime]::UtcNow - $script:LastUwfCheck).TotalSeconds -lt 20) {
         return $script:UwfState
     }
     try {

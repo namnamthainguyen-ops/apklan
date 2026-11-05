@@ -44,11 +44,13 @@ def scroll_top():
     swipe(False)
 
 
-def tap(predicate):
-    deadline = time.monotonic() + 30
+def tap(predicate, transition=None):
+    deadline = time.monotonic() + 45
     scrolls = 0
     while time.monotonic() < deadline:
         tree = ui()
+        if transition is not None and transition(tree):
+            return
         matched = False
         for node in tree.iter("node"):
             if predicate(node.attrib):
@@ -56,7 +58,10 @@ def tap(predicate):
             if predicate(node.attrib) and node.attrib.get("enabled", "true") == "true":
                 left, top, right, bottom = map(int, re.findall(r"\d+", node.attrib["bounds"]))
                 adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
-                return
+                if transition is None:
+                    return
+                time.sleep(0.3)
+                break
         if not matched and any(node.attrib.get("class") == "android.widget.ScrollView" for node in tree.iter("node")):
             if scrolls < 3:
                 swipe(True)
@@ -65,7 +70,7 @@ def tap(predicate):
                 scroll_top()
                 scrolls = 0
         time.sleep(0.3)
-    raise AssertionError("Expected enabled control was not found")
+    raise AssertionError("Expected enabled control or its resulting UI transition was not observed")
 
 
 def wait_for(predicate, message, seconds=30):
@@ -83,8 +88,45 @@ def wait_text(text):
                     f"Expected status was not found: {text}")
 
 
-def tap_text(text):
-    tap(lambda node: node.get("text", "").casefold() == text.casefold())
+def tap_text(text, transition=None):
+    tap(lambda node: node.get("text", "").casefold() == text.casefold(), transition)
+
+
+def has_id(tree, name):
+    return any(by_id(name)(node.attrib) for node in tree.iter("node"))
+
+
+def has_button(tree, text):
+    return any(node.attrib.get("resource-id") == "android:id/button1" and
+               node.attrib.get("text", "").casefold() == text.casefold() for node in tree.iter("node"))
+
+
+def field_text(tree, name):
+    for node in tree.iter("node"):
+        if by_id(name)(node.attrib):
+            return node.attrib.get("text", "")
+    raise AssertionError(f"Missing edit field: {name}")
+
+
+def type_field(name, value, secret=False):
+    for _ in range(3):
+        tap(by_id(name), lambda tree: any(by_id(name)(node.attrib) and node.attrib.get("focused") == "true"
+                                         for node in tree.iter("node")))
+        current = field_text(ui(), name)
+        adb("shell", "input", "keyevent", "KEYCODE_MOVE_END")
+        adb("shell", "input", "keyevent", *(["KEYCODE_DEL"] * max(16, len(current) + 4)))
+        adb("shell", "input", "text", value.replace(" ", "%s"))
+        actual = field_text(ui(), name)
+        if (not secret and actual == value) or (secret and (not actual or len(actual) == len(value))):
+            return
+        print(f"ANDROID_TEXT_INPUT_RETRY={name}")
+    raise AssertionError(f"ADB text entry did not stabilize for {name}")
+
+
+def last_scans():
+    xml = adb("shell", "run-as", PACKAGE, "cat", "shared_prefs/lanpower_rooms_v2.xml")
+    values = ET.fromstring(xml).find("string[@name='rooms']")
+    return {room["id"]: room.get("lastScan", 0) for room in json.loads(values.text or "[]")}
 
 
 def control(path="/state", payload=None):
@@ -112,7 +154,8 @@ def wait_idle():
 
 def refresh():
     wait_idle()
-    tap(by_id("refresh"))
+    before = last_scans()
+    tap(by_id("refresh"), lambda _tree: any(value > before.get(room_id, 0) for room_id, value in last_scans().items()))
     wait_idle()
 
 
@@ -138,22 +181,21 @@ def detail_action_ids():
 
 def open_room(name):
     wait_idle()
-    tap(lambda node: node.get("content-desc") == "room:" + name)
-    wait_for(lambda tree: any(by_id("select_all")(node.attrib) for node in tree.iter("node")), "Room did not open")
+    tap(lambda node: node.get("content-desc") == "room:" + name,
+        lambda tree: has_id(tree, "select_all") and any(node.attrib.get("text") == name for node in tree.iter("node")))
     wait_idle()
 
 
 def home():
-    tap(by_id("back"))
-    wait_text("Các phòng")
+    tap(by_id("back"), lambda tree: any(node.attrib.get("text") == "Các phòng" for node in tree.iter("node")))
 
 
 def submit_room(name, key, hold_modal=False):
-    tap(by_id("add_room"))
-    tap(by_id("room_name_input"))
-    adb("shell", "input", "text", name.replace(" ", "%s"))
-    tap(by_id("room_key_input"))
-    adb("shell", "input", "text", key)
+    tap(by_id("add_room"), lambda tree: has_id(tree, "room_name_input"))
+    type_field("room_name_input", name)
+    type_field("room_key_input", key, secret=True)
+    if field_text(ui(), "room_name_input") != name:
+        type_field("room_name_input", name)
     if hold_modal:
         before = control()["discoveryPackets"]
         time.sleep(21)
@@ -164,7 +206,8 @@ def submit_room(name, key, hold_modal=False):
         print("ANDROID_MODAL_AUTO_REFRESH_GUARD=PASS (>20 seconds, dialog retained, no discovery traffic)")
     # BACK can cancel a dialog when a hardware keyboard suppresses the IME.
     # AlertDialog keeps its positive action visible above any soft keyboard.
-    tap(by_id("android:id/button1"))
+    assert field_text(ui(), "room_name_input") == name, "Room name changed after text entry"
+    tap(by_id("android:id/button1"), lambda tree: not has_id(tree, "room_name_input"))
 
 
 def add_room(name, key, hold_modal=False):
@@ -181,14 +224,14 @@ def close_result(expected_error=None):
     if expected_error:
         text = " ".join(node.attrib.get("text", "") for node in tree.iter("node"))
         assert expected_error in text, f"Partial failure was not shown: {text}"
-    tap_text("Đóng")
+    tap_text("Đóng", lambda tree: not has_button(tree, "Đóng"))
     wait_idle()
 
 
 def bulk(action, expected_ids=IDS_A, expected_error=None):
     start = len(control()["events"])
-    tap(by_id("action_" + action))
-    tap_text("Thực hiện")
+    tap(by_id("action_" + action), lambda tree: has_button(tree, "Thực hiện"))
+    tap_text("Thực hiện", lambda tree: not has_button(tree, "Thực hiện"))
     events = wait_events(start, action, expected_ids)
     close_result(expected_error)
     return events
@@ -196,8 +239,17 @@ def bulk(action, expected_ids=IDS_A, expected_error=None):
 
 def legacy_prepare():
     test_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-    tap(lambda node: node.get("class") == "android.widget.EditText")
-    adb("shell", "input", "text", test_key)
+    edit = lambda node: node.get("class") == "android.widget.EditText"
+    for _ in range(3):
+        tap(edit, lambda tree: any(edit(node.attrib) and node.attrib.get("focused") == "true" for node in tree.iter("node")))
+        adb("shell", "input", "keyevent", "KEYCODE_MOVE_END")
+        adb("shell", "input", "keyevent", *(["KEYCODE_DEL"] * 60))
+        adb("shell", "input", "text", test_key)
+        actual = next(node.attrib.get("text", "") for node in ui().iter("node") if edit(node.attrib))
+        if not actual or len(actual) == len(test_key):
+            break
+    else:
+        raise AssertionError("Legacy key entry did not stabilize")
     tap_text("Lưu khóa")
     wait_text("Đã lưu Management Key bằng Android Keystore.")
     preferences = adb("shell", "run-as", PACKAGE, "cat", "shared_prefs/lanpower_secure.xml")
@@ -234,16 +286,20 @@ open_room(ROOM_A)
 refresh()
 assert visible_devices() == {"CI-A-01", "CI-A-02"}, "Room A did not isolate its discovered machines"
 
-tap(lambda node: node.get("content-desc") == "device:CI-A-01")
-tree = wait_text("10.0.2.2")
+tap(lambda node: node.get("content-desc") == "device:CI-A-01",
+    lambda tree: any(node.attrib.get("text", "").startswith("Hostname: CI-A-01") for node in tree.iter("node")))
+tree = wait_text("Hostname: CI-A-01")
 action_ids = detail_action_ids()
 for action in ["wake", "shutdown", "restart", "freeze", "unfreeze"]:
     assert "action_" + action in action_ids, f"Missing detail action: {action}"
-tap(by_id("back"))
+tap(by_id("back"), lambda tree: has_id(tree, "select_all"))
 
-tap(lambda node: node.get("resource-id", "").endswith(":id/device_select") and node.get("content-desc") == "Chọn CI-A-01")
+single_selection = lambda node: by_id("device_select")(node) and node.get("content-desc") == "Chọn CI-A-01"
+tap(single_selection, lambda tree: any(single_selection(node.attrib) and node.attrib.get("checked") == "true"
+                                      for node in tree.iter("node")))
 bulk("freeze", {sorted(IDS_A)[0]})
-tap(by_id("select_all"))
+tap(by_id("select_all"), lambda tree: any(by_id("select_all")(node.attrib) and node.attrib.get("checked") == "true"
+                                         for node in tree.iter("node")))
 events = bulk("freeze")
 assert all(event["status"] == "accepted" for event in events)
 assert all(device["pending"] is True for device in control()["devices"] if device["id"] in IDS_A)

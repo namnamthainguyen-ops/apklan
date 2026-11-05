@@ -90,6 +90,15 @@ Reset-Scenario -CurrentFilter $true -NextFilter $true -NextC $true
 Assert-Equal (Get-UwfState) 'OFF (next ON)' 'D: protection must not imply that C: is frozen.'
 Assert-Equal (Get-UwfCapabilities) 'power,uwf' 'Available UWF provider advertises support.'
 
+Reset-Scenario
+Assert-Equal (Get-UwfState) 'OFF (next OFF)' 'Read initial C: status.'
+$script:FilterConfig.CurrentEnabled = $true
+$script:FilterConfig.NextEnabled = $true
+$script:CurrentC = $true
+$script:NextC = $true
+$script:LastUwfCheck = [DateTime]::UtcNow.AddSeconds(-21)
+Assert-Equal (Get-UwfState) 'ON (next ON)' 'External C: policy changes must become visible within the room refresh window.'
+
 Reset-Scenario -CurrentC $true -NextC $true
 Assert-Equal (Get-UwfState) 'OFF (next OFF)' 'Volume protection alone is ineffective when the filter is off.'
 
