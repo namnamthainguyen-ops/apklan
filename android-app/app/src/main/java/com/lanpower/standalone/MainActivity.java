@@ -177,12 +177,10 @@ public final class MainActivity extends Activity {
                 postResult(() -> {
                     for (Device device : found) devices.put(device.id, device);
                     saveDevices();
-                    renderDevices();
                     setBusy(false, "Đã tìm thấy " + found.size() + " máy trong lần quét này.");
                 });
             } catch (Exception error) {
                 postResult(() -> {
-                    renderDevices();
                     setBusy(false, "Quét thất bại: " + error.getMessage());
                 });
             } finally {

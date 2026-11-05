@@ -68,10 +68,10 @@ Script sẽ:
 
 Cài APK lên điện thoại Android 8.0 trở lên. Mở app, nhập Management Key và chọn `Quét mạng LAN`.
 
-APK debug trong repository: `release/LanPowerStandalone-1.0.0-debug.apk`
+APK debug trong repository: `release/LanPowerStandalone-1.0.1-debug.apk`. Cùng chứng thư với bản 1.0.0 để cài nâng cấp; bản 1.0.0 được giữ lại phục vụ kiểm thử nâng cấp.
 
 ```text
-SHA-256: 586EC9A1428F10143D82CDF31C91113EDC039438FFAA83FD14D4B18E61EEF6E7
+SHA-256: 758B0E24F467455F14CE7A0F03B7B132E762D78698BD0CAA6A2E3CFF2C37B10F
 ```
 
 Điện thoại và t540 phải ở cùng broadcast domain. Wi-Fi không được bật AP/client isolation. Nếu Wi-Fi và Ethernet nằm ở hai VLAN khác nhau, router phải chuyển tiếp broadcast hoặc cần đặt chúng vào cùng VLAN.
