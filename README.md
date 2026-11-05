@@ -117,7 +117,7 @@ Cài APK lên điện thoại Android 8.0 trở lên. Mở app, nhập Managemen
 APK debug trong repository: `release/LanPowerStandalone-1.1.0-debug.apk`. Cùng chứng thư với bản 1.0.x để cài nâng cấp; bản cũ được giữ lại phục vụ kiểm thử nâng cấp.
 
 ```text
-SHA-256: 3FC5BE9994612CF754FA98877D815EEEEA0E7E055136173FFB7103AAD12D2953
+SHA-256: DC841DE6FFAEA1DEEE5C70D8768AA3B73A4AD0488C0778BDE406D3415BE2CBB3
 ```
 
 Điện thoại và t540 phải ở cùng broadcast domain. Wi-Fi không được bật AP/client isolation. Nếu Wi-Fi và Ethernet nằm ở hai VLAN khác nhau, router phải chuyển tiếp broadcast hoặc cần đặt chúng vào cùng VLAN.

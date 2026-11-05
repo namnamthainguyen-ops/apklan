@@ -84,7 +84,7 @@ def wait_text(text):
 
 
 def tap_text(text):
-    tap(lambda node: node.get("text") == text)
+    tap(lambda node: node.get("text", "").casefold() == text.casefold())
 
 
 def control(path="/state", payload=None):
@@ -148,18 +148,27 @@ def home():
     wait_text("Các phòng")
 
 
-def submit_room(name, key):
+def submit_room(name, key, hold_modal=False):
     tap(by_id("add_room"))
     tap(by_id("room_name_input"))
     adb("shell", "input", "text", name.replace(" ", "%s"))
     tap(by_id("room_key_input"))
     adb("shell", "input", "text", key)
-    adb("shell", "input", "keyevent", "BACK")
-    tap_text("Tạo phòng")
+    if hold_modal:
+        before = control()["discoveryPackets"]
+        time.sleep(21)
+        tree = ui()
+        for control_id in ["room_name_input", "room_key_input"]:
+            assert any(by_id(control_id)(node.attrib) for node in tree.iter("node")), "Auto-refresh dismissed the Add Room dialog"
+        assert control()["discoveryPackets"] == before, "Auto-refresh sent discovery while Add Room dialog was open"
+        print("ANDROID_MODAL_AUTO_REFRESH_GUARD=PASS (>20 seconds, dialog retained, no discovery traffic)")
+    # BACK can cancel a dialog when a hardware keyboard suppresses the IME.
+    # AlertDialog keeps its positive action visible above any soft keyboard.
+    tap(by_id("android:id/button1"))
 
 
-def add_room(name, key):
-    submit_room(name, key)
+def add_room(name, key, hold_modal=False):
+    submit_room(name, key, hold_modal)
     wait_for(lambda tree: any(node.attrib.get("content-desc") == "room:" + name
                               for node in tree.iter("node")), "Created room is missing")
     wait_idle()
@@ -167,7 +176,7 @@ def add_room(name, key):
 
 def close_result(expected_error=None):
     tree = wait_for(lambda tree: any(node.attrib.get("resource-id") == "android:id/button1" and
-                                     node.attrib.get("text") == "Đóng" for node in tree.iter("node")),
+                                     node.attrib.get("text", "").casefold() == "Đóng".casefold() for node in tree.iter("node")),
                     "Per-device operation results did not appear")
     if expected_error:
         text = " ".join(node.attrib.get("text", "") for node in tree.iter("node"))
@@ -189,7 +198,6 @@ def legacy_prepare():
     test_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     tap(lambda node: node.get("class") == "android.widget.EditText")
     adb("shell", "input", "text", test_key)
-    adb("shell", "input", "keyevent", "BACK")
     tap_text("Lưu khóa")
     wait_text("Đã lưu Management Key bằng Android Keystore.")
     preferences = adb("shell", "run-as", PACKAGE, "cat", "shared_prefs/lanpower_secure.xml")
@@ -218,7 +226,7 @@ if "--existing-key" in sys.argv:
     home()
 
 add_room(ROOM_A, "RoomA123")
-add_room(ROOM_B, "RoomB456")
+add_room(ROOM_B, "RoomB456", hold_modal=True)
 submit_room("CI Duplicate", "RoomA123")
 wait_text("Key này đã thuộc phòng")
 assert not any(node.attrib.get("content-desc") == "room:CI Duplicate" for node in ui().iter("node")), "Duplicate key created a second room"

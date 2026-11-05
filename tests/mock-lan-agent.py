@@ -18,12 +18,15 @@ KEYS["L"] = bytes(32)
 LOCK = threading.RLock()
 DEVICES = {}
 EVENTS = []
+DISCOVERY_COUNT = 0
 
 
 def reset():
+    global DISCOVERY_COUNT
     with LOCK:
         DEVICES.clear()
         EVENTS.clear()
+        DISCOVERY_COUNT = 0
         for index, room in enumerate(["A", "A", "B", "L"], 1):
             device_id = f"00000000-0000-4000-8000-{index:012d}"
             DEVICES[device_id] = {"id": device_id, "hostname": f"CI-{room}-{index:02d}", "room": room,
@@ -44,7 +47,8 @@ def uwf(device):
 def snapshot():
     with LOCK:
         return {"devices": [{**{k: v for k, v in device.items() if k != "nonces"}, "uwf": uwf(device)}
-                            for device in DEVICES.values()], "events": list(EVENTS)}
+                            for device in DEVICES.values()], "events": list(EVENTS),
+                "discoveryPackets": DISCOVERY_COUNT}
 
 
 class Control(BaseHTTPRequestHandler):
@@ -80,10 +84,12 @@ def send(udp, remote, value):
 
 
 def handle_request(udp, remote, data):
+    global DISCOVERY_COUNT
     try:
         message = json.loads(data)
         with LOCK:
             if message.get("type") == "discover":
+                DISCOVERY_COUNT += 1
                 nonce = message["nonce"]
                 for device in DEVICES.values():
                     key = KEYS[device["room"]]

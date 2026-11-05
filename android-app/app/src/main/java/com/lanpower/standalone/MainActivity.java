@@ -65,13 +65,14 @@ public final class MainActivity extends Activity {
     private boolean visible;
     private boolean loadFailed;
     private boolean updatingAll;
+    private int openPrompts;
     private CheckBox selectAllBox;
     private volatile boolean destroyed;
 
     private final Runnable autoRefresh = new Runnable() {
         @Override public void run() {
             if (!visible || destroyed) return;
-            if (!busy && !rooms.isEmpty()) refresh();
+            if (!busy && openPrompts == 0 && !rooms.isEmpty()) refresh();
             handler.postDelayed(this, 20000);
         }
     };
@@ -327,9 +328,9 @@ public final class MainActivity extends Activity {
         String explanation = "wake".equals(action) ? "Magic Packet chỉ gửi yêu cầu bật; cần quét lại để xác nhận."
                 : ("freeze".equals(action) || "unfreeze".equals(action)) ? "Thay đổi UWF C: có hiệu lực sau khi khởi động lại. App không tự khởi động lại máy."
                 : "Các máy Offline / chưa rõ trạng thái sẽ được bỏ qua. Hãy lưu công việc trước khi tắt hoặc khởi động lại.";
-        new AlertDialog.Builder(this).setTitle(actionLabel(action) + " • " + targets.size() + " máy")
+        showPrompt(new AlertDialog.Builder(this).setTitle(actionLabel(action) + " • " + targets.size() + " máy")
                 .setMessage("Phòng: " + room.name + "\n" + explanation).setNegativeButton("Hủy", null)
-                .setPositiveButton("Thực hiện", (dialog, which) -> runAction(room, targets, action)).show();
+                .setPositiveButton("Thực hiện", (dialog, which) -> runAction(room, targets, action)).create());
     }
 
     private void runAction(RoomModel room, List<ManagedDevice> targets, String action) {
@@ -367,8 +368,8 @@ public final class MainActivity extends Activity {
             final int successCount = successes;
             postResult(() -> {
                 setBusy(false, "Hoàn tất " + actionLabel(action) + ": " + successCount + "/" + targets.size() + " máy nhận yêu cầu");
-                new AlertDialog.Builder(this).setTitle("Kết quả " + successCount + "/" + targets.size())
-                        .setMessage(String.join("\n\n", results)).setPositiveButton("Đóng", (dialog, which) -> refresh()).show();
+                showPrompt(new AlertDialog.Builder(this).setTitle("Kết quả " + successCount + "/" + targets.size())
+                        .setMessage(String.join("\n\n", results)).setPositiveButton("Đóng", (dialog, which) -> refresh()).create());
             });
         });
     }
@@ -419,11 +420,11 @@ public final class MainActivity extends Activity {
                 } catch (Exception error) { postResult(() -> setBusy(false, "Không tạo được phòng: " + readable(error))); }
             });
         }));
-        dialog.show();
+        showPrompt(dialog);
     }
 
     private void confirmRemoveRoom(RoomModel room) {
-        new AlertDialog.Builder(this).setTitle("Xóa phòng " + room.name + "?")
+        showPrompt(new AlertDialog.Builder(this).setTitle("Xóa phòng " + room.name + "?")
                 .setMessage("Chỉ xóa phòng, khóa mã hóa và danh sách máy đã lưu khỏi app. Các máy Windows vẫn giữ nguyên cấu hình agent. Cần quét lại để lưu máy nếu thêm lại phòng.")
                 .setNegativeButton("Hủy", null).setPositiveButton("Xóa phòng", (dialog, which) -> {
                     Map<String, RoomModel> previous = new LinkedHashMap<>(rooms);
@@ -435,7 +436,15 @@ public final class MainActivity extends Activity {
                         statusMessage = "Đã xóa phòng " + room.name + " khỏi app";
                     } catch (Exception error) { statusMessage = "Đã xóa danh sách phòng; chưa dọn được khóa: " + readable(error); }
                     render();
-                }).show();
+                }).create());
+    }
+
+    private void showPrompt(AlertDialog dialog) {
+        // Do not start a scan behind an in-progress form or power confirmation.
+        openPrompts++;
+        dialog.setOnDismissListener(ignored -> openPrompts = Math.max(0, openPrompts - 1));
+        try { dialog.show(); }
+        catch (RuntimeException error) { openPrompts--; throw error; }
     }
 
     private void refresh() {
