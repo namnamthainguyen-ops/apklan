@@ -3,3 +3,6 @@
 local.properties
 *.jks
 *.keystore
+
+# Local pre-branding preview; not a published installer.
+/release/LanPowerClientSetup-1.1.0.exe

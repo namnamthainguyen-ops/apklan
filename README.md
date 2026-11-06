@@ -1,6 +1,8 @@
-# LanPower Standalone 1.1.0 — Quản lý nhiều phòng máy
+# Room TN20 1.1.1 — Quản lý nhiều phòng máy
 
-[![Verify LAN Power](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml/badge.svg)](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml)
+[![Verify Room TN20](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml/badge.svg)](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml)
+
+**Thương hiệu TN20 · Công ty TNHH TN20 · [20.com.vn](https://20.com.vn)**
 
 Quản lý HP t540 Windows IoT từ Android trong cùng LAN: chia nhiều phòng, mỗi phòng dùng chung **key 8 ký tự do bạn chọn**, theo dõi online/offline, bật/tắt/restart và đóng/mở đóng băng ổ C. App làm việc trực tiếp với agent, không cần API hoặc máy chủ trung tâm.
 
@@ -8,7 +10,8 @@ Mỗi phòng có danh sách máy riêng. Chạm một máy để xem tên, IP, M
 
 ## Tải về
 
-- **[Tải APK Android 1.1.0](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/LanPowerStandalone-1.1.0-debug.apk)** — Android 8.0 trở lên, bản debug để thử nghiệm.
+- **[Tải bộ cài client Windows — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.1.1.exe)** — mở file, nhập key phòng 8 ký tự rồi bấm Cài đặt.
+- **[Tải APK Room TN20 1.1.1](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.1.1.apk)** — Android 8.0 trở lên, bản debug để thử nghiệm.
 - [Tải toàn bộ mã nguồn và bộ cài Windows ZIP](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip).
 - [Xem script cài Windows online](https://github.com/namnamthainguyen-ops/apklan/blob/main/install-online.ps1).
 - [Xem kết quả kiểm thử trên GitHub](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml).
@@ -17,13 +20,28 @@ Mỗi phòng có danh sách máy riêng. Chạm một máy để xem tên, IP, M
 
 ## Cài nhanh
 
-Máy Windows cần Internet khi tải bộ cài online. Khi sử dụng, điện thoại và máy Windows phải cùng LAN; Wi-Fi cần cho phép các thiết bị liên lạc với nhau. Mỗi máy Windows cần cài agent một lần bằng quyền Administrator.
+Khi sử dụng, điện thoại và máy Windows phải cùng LAN; Wi-Fi cần cho phép các thiết bị liên lạc với nhau. Mỗi máy Windows cần cài agent một lần bằng quyền Administrator. Bộ cài EXE chứa sẵn agent và phần cài đặt; Windows cần .NET Framework 4.7.2 trở lên. Chuẩn bị Windows Feature UWF có thể cần nguồn thành phần Windows nếu hệ điều hành chưa có sẵn.
 
 ### Bước 1 — Chọn key cho từng phòng
 
 Tự chọn key gồm đúng **8 ký tự ASCII in được**, phân biệt hoa/thường; có thể dùng chữ, số và ký hiệu, không dùng khoảng trắng hoặc chữ có dấu. Dùng cùng key cho tất cả máy thuộc một phòng và dùng key khác cho phòng khác. Tên phòng chỉ cần đặt trên APK; trên máy Windows chỉ cần nhập key của phòng đó khi cài agent. Không gửi key lên GitHub hoặc chia sẻ công khai.
 
-### Bước 2 — Cài online trên từng máy Windows
+### Bước 2 — Cài một file EXE trên từng máy Windows
+
+1. [Tải `RoomTN20-ClientSetup-1.1.1.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.1.1.exe), có thể chép cùng file này sang tất cả máy client.
+2. Mở file với quyền Administrator, nhập key của phòng rồi bấm **Cài đặt**.
+3. Khi nhận thông báo thành công, đóng bộ cài. Agent tự chạy cùng Windows; trên APK tạo phòng bằng đúng key đó để nhận máy.
+
+EXE tự chuẩn bị UWF khi hệ điều hành hỗ trợ, báo riêng nếu cần restart hoặc không thể chuẩn bị feature. Nếu UWF chưa sẵn sàng, phần điều khiển bật/tắt vẫn được cài. Bộ cài không tự khởi động lại máy.
+
+```text
+EXE SHA-256: 9C8565C5D17FA66DFF1158B9E474EC5CD39B5BDE1892F9D1F466EDF181EBBB3E
+```
+
+Bản EXE hiện chưa ký Authenticode; Windows có thể hiển thị nhà xuất bản chưa xác định. Thương hiệu hiển thị trong ứng dụng là **Room TN20 — Công ty TNHH TN20**, website **20.com.vn**.
+
+<details>
+<summary>Cách cài thay thế bằng PowerShell online</summary>
 
 Mở **Windows PowerShell bằng quyền Administrator** trên máy client rồi chạy nguyên đoạn sau. Khi được hỏi, nhập key 8 ký tự của phòng:
 
@@ -32,7 +50,7 @@ $ErrorActionPreference = 'Stop'
 $key = Read-Host 'Nhap key phong gom 8 ky tu, khong khoang trang'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/install-online.ps1'
-$expected = '0E1F82BF73C12EB3155861CD7AAC2DAAE615FA11F3920C35E8AF26F60F8B8FA7'
+$expected = '87223F1E491BFFF9C6ECE9365CF0CBFF5672CC1FB5333D62CA2E9D9F9C529CF6'
 $file = Join-Path $env:TEMP ('lanpower-install-' + [Guid]::NewGuid().ToString('N') + '.ps1')
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
 if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $expected) { throw 'Installer checksum mismatch.' }
@@ -46,12 +64,14 @@ Execution policy chỉ được đặt cho phiên PowerShell đang mở. Gọi t
 
 `-PrepareUwf` chuẩn bị Windows Feature UWF trên Windows IoT Enterprise, không tự đóng băng C và không tự khởi động lại. Nếu bộ cài yêu cầu restart để hoàn tất feature, khởi động lại máy một lần rồi mới dùng nút đóng băng trong APK. Nếu chỉ cần bật/tắt máy, có thể bỏ `-PrepareUwf`.
 
+</details>
+
 **Nếu ổ C đang đóng băng:** mở đóng băng và restart trước khi cài/cập nhật agent hoặc đổi key, để cấu hình mới được giữ sau khi boot. Bộ cài sẽ từ chối ghi khi phát hiện C đang được bảo vệ.
 
 ### Bước 3 — Cài APK và quản lý máy
 
-1. [Tải APK 1.1.0 trên điện thoại](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/LanPowerStandalone-1.1.0-debug.apk), cho phép trình duyệt hoặc trình quản lý tệp cài ứng dụng khi Android yêu cầu.
-2. Mở **LanPower Standalone**, thêm phòng, đặt tên phòng và nhập đúng key 8 ký tự đã cài trên các máy.
+1. [Tải APK Room TN20 1.1.1 trên điện thoại](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.1.1.apk), cho phép trình duyệt hoặc trình quản lý tệp cài ứng dụng khi Android yêu cầu.
+2. Mở **Room TN20**, thêm phòng, đặt tên phòng và nhập đúng key 8 ký tự đã cài trên các máy.
 3. Mở phòng, chọn **Quét mạng LAN**. Máy dùng đúng key sẽ được đưa vào danh sách phòng; app lưu lại tên, IP và MAC để tiếp tục hiển thị khi máy offline.
 4. Chạm một máy để xem chi tiết và dùng **Bật**, **Tắt**, **Restart**, **Đóng băng C:** hoặc **Mở đóng băng C:**.
 5. Chọn các máy hoặc **Chọn tất cả**, rồi chọn thao tác hàng loạt. Lệnh tắt/restart/đóng băng bỏ qua máy offline; Wake-on-LAN gửi tới MAC đã lưu của các máy được chọn.
@@ -78,7 +98,7 @@ Mỗi t540 cần cài standalone agent. Agent chạy bằng Scheduled Task dư�
 
 Key 8 ký tự được chuyển thành khóa giao thức 32 byte bằng PBKDF2-HMAC-SHA256. APK và bộ cài dùng cùng quy tắc; không gửi key thô trong gói UDP. Key phòng được bảo vệ bằng Android Keystore; agent lưu khóa đã dẫn xuất trong thư mục chỉ Administrators/SYSTEM truy cập được.
 
-Bản cũ dùng `-ManagementKey` Base64 32 byte vẫn được hỗ trợ để nâng cấp. APK chuyển khóa và danh sách đã lưu sang một phòng mặc định; cần cập nhật agent 1.1.0 để dùng các nút UWF và metadata trạng thái được ký. Để chuyển sang key 8 ký tự, cài lại các máy bằng `-RoomKey` và tạo phòng tương ứng trên APK.
+Bản cũ dùng `-ManagementKey` Base64 32 byte vẫn được hỗ trợ để nâng cấp. APK chuyển khóa và danh sách đã lưu sang một phòng mặc định; cần cập nhật agent mới để dùng các nút UWF và metadata trạng thái được ký. Để chuyển sang key 8 ký tự, cài lại các máy bằng EXE hoặc `-RoomKey` và tạo phòng tương ứng trên APK. Định danh package Android, nơi lưu dữ liệu và mã task Windows được giữ nguyên để nâng cấp không mất dữ liệu.
 
 ## 2. Cấu hình HP t540
 
@@ -93,7 +113,7 @@ Trong Windows bật `Wake on Magic Packet` của card Ethernet nếu driver có 
 
 ## 3. Cài agent trên mỗi máy
 
-Để cài offline, tải [ZIP mã nguồn](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip), giải nén toàn bộ rồi mở PowerShell Administrator trong thư mục `client`. Giữ đủ ba tệp `Install-Agent.ps1`, `Install-Core.ps1` và `StandaloneAgent.ps1` cạnh nhau:
+Ưu tiên dùng [một file EXE ở Bước 2](#huong-dan-cai-dat). Nếu cần dùng mã nguồn để cài offline, tải [ZIP mã nguồn](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip), giải nén toàn bộ rồi mở PowerShell Administrator trong thư mục `client`. Giữ đủ ba tệp `Install-Agent.ps1`, `Install-Core.ps1` và `StandaloneAgent.ps1` cạnh nhau:
 
 ```powershell
 $key = Read-Host 'Nhap key phong gom 8 ky tu, khong khoang trang'
@@ -101,7 +121,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 & .\Install-Agent.ps1 -RoomKey $key -PrepareUwf
 ```
 
-Để cài online, dùng nguyên lệnh ở [Bước 2 — Cài online](#huong-dan-cai-dat) phía đầu trang. Lệnh tải installer về file tạm, kiểm tra SHA-256 rồi mới chạy. Installer tiếp tục kiểm tra SHA-256 của cả `StandaloneAgent.ps1` và `Install-Core.ps1` trước khi cài.
+Để cài online, mở phần PowerShell trong [Bước 2](#huong-dan-cai-dat) phía đầu trang. Lệnh tải installer về file tạm, kiểm tra SHA-256 rồi mới chạy. Installer tiếp tục kiểm tra SHA-256 của cả `StandaloneAgent.ps1` và `Install-Core.ps1` trước khi cài.
 
 Script sẽ:
 
@@ -112,12 +132,12 @@ Script sẽ:
 
 ## 4. Cài APK
 
-Cài APK lên điện thoại Android 8.0 trở lên. Mở app, nhập Management Key và chọn `Quét mạng LAN`.
+Cài APK lên điện thoại Android 8.0 trở lên. Mở Room TN20, thêm phòng bằng tên và key 8 ký tự rồi chọn `Quét LAN`.
 
-APK debug trong repository: `release/LanPowerStandalone-1.1.0-debug.apk`. Cùng chứng thư với bản 1.0.x để cài nâng cấp; bản cũ được giữ lại phục vụ kiểm thử nâng cấp.
+APK debug trong repository: `release/RoomTN20-1.1.1.apk`. Cùng chứng thư với bản 1.0.x/1.1.0 để cài nâng cấp; bản cũ được giữ lại phục vụ kiểm thử nâng cấp.
 
 ```text
-SHA-256: DC841DE6FFAEA1DEEE5C70D8768AA3B73A4AD0488C0778BDE406D3415BE2CBB3
+APK SHA-256: 429A22F79E04604DBC60B5C019222759239A83928F1F06189F512738BE17118F
 ```
 
 Điện thoại và t540 phải ở cùng broadcast domain. Wi-Fi không được bật AP/client isolation. Nếu Wi-Fi và Ethernet nằm ở hai VLAN khác nhau, router phải chuyển tiếp broadcast hoặc cần đặt chúng vào cùng VLAN.
@@ -179,6 +199,7 @@ GitHub Actions tự chạy khi push vào `main`, khi mở pull request hoặc b�
 - Windows PowerShell 5.1: phân tích cú pháp mọi script, kiểm tra HMAC và gửi UDP thật tới bản agent thử nghiệm với hàm tắt máy được thay bằng bộ ghi nhận.
 - Giao thức: khóa sai, chữ ký sai, gói lỗi, timestamp quá hạn, replay, sai thiết bị và action không hỗ trợ.
 - Installer: cài trên Windows runner tạm, xác nhận Scheduled Task SYSTEM, firewall `LocalSubnet`, ACL, cài lại và gỡ bỏ.
+- EXE: build từ source, kiểm tra payload nhúng/KDF/giao diện nội bộ và thử cài bằng đúng file EXE phát hành trên Windows runner tạm.
 - Android: unit test cho code giao thức thực tế, lint và build APK từ source.
 - Key phòng: đối chiếu PBKDF2 giữa Node.js, Windows PowerShell và Java; từ chối sai độ dài/định dạng.
 - Máy ảo Android API 26 và 35: nhiều phòng, khóa mã hóa, cách ly danh sách, thiết bị giả lập online/offline, thao tác từng máy/hàng loạt và nâng cấp giữ dữ liệu. Các agent giả lập chỉ ghi nhận lệnh, không điều khiển máy thật.

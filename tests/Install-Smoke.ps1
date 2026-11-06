@@ -1,7 +1,10 @@
 [CmdletBinding()]
-param([switch]$IncludeOnline)
+param([switch]$IncludeOnline, [string]$InstallerExe)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($InstallerExe -and $env:GITHUB_ACTIONS -ne 'true') {
+    throw 'Packaged EXE installation smoke test is restricted to the disposable GitHub Actions Windows runner.'
+}
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'client\Install-Core.ps1')
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -55,6 +58,40 @@ function Test-AgentDiscovery {
     throw 'Installed SYSTEM agent did not answer authenticated loopback discovery.'
 }
 
+function Invoke-OfflineTestInstall {
+    param([switch]$LegacyManagementKey)
+    if (-not $InstallerExe) {
+        if ($LegacyManagementKey) { & $offlineInstaller -ManagementKey $key -InstallPath $installPath -TaskName $taskName -Port $port }
+        else { & $offlineInstaller -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port }
+        return
+    }
+    $info = [Diagnostics.ProcessStartInfo]::new()
+    $info.FileName = $packagedExe
+    $info.Arguments = ('--ci-install --install-path "{0}" --task-name "{1}" --port {2}' -f $installPath, $taskName, $port)
+    $info.WorkingDirectory = $packagedRoot
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardInput = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $info
+    try {
+        if (-not $process.Start()) { throw 'Unable to start packaged installer.' }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.StandardInput.WriteLine($roomKey)
+        $process.StandardInput.Close()
+        if (-not $process.WaitForExit(120000)) { $process.Kill(); throw 'Packaged installer timed out.' }
+        $stdout = $stdoutTask.Result
+        $stderr = $stderrTask.Result
+        if (($stdout + $stderr).Contains($roomKey)) { throw 'Packaged installer exposed the room key in output.' }
+        if ($process.ExitCode -ne 0) { throw "Packaged installer failed: $stdout $stderr" }
+        Write-Output 'PACKAGED_EXE_INSTALL=PASS (stdin key, isolated single EXE, no key in output)'
+    }
+    finally { $process.Dispose() }
+}
+
 $testId = [Guid]::NewGuid().ToString('N')
 $installPath = Join-Path $env:TEMP "LanPowerSmoke-$testId"
 $taskName = "LanPowerSmoke-$testId"
@@ -66,7 +103,19 @@ $key = ConvertTo-LanPowerManagementKey -RoomKey $roomKey
 $ruleName = Get-LanPowerFirewallRuleName $taskName $port
 $offlineInstaller = Join-Path $repoRoot 'client\Install-Agent.ps1'
 $uninstaller = Join-Path $repoRoot 'client\Uninstall-Agent.ps1'
+$packagedRoot = $null
+$packagedExe = $null
 try {
+    if ($InstallerExe) {
+        $sourceExe = (Resolve-Path -LiteralPath $InstallerExe).Path
+        if (-not (Test-Path -LiteralPath $sourceExe -PathType Leaf) -or [IO.Path]::GetExtension($sourceExe) -ine '.exe') {
+            throw 'InstallerExe must point to the packaged client installer EXE.'
+        }
+        $packagedRoot = Join-Path $env:TEMP "LanPowerPackaged-$testId"
+        New-Item -ItemType Directory -Path $packagedRoot | Out-Null
+        $packagedExe = Join-Path $packagedRoot 'RoomTN20-ClientSetup.exe'
+        Copy-Item -LiteralPath $sourceExe -Destination $packagedExe
+    }
     foreach ($blocked in @([IO.Path]::GetPathRoot($installPath), $env:ProgramData, $env:WINDIR)) {
         $failed = $false
         try { Get-LanPowerInstallPath $blocked | Out-Null } catch { $failed = $true }
@@ -79,7 +128,7 @@ try {
     [void]$permissiveAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
         [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'), 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
     Set-Acl -LiteralPath $installPath -AclObject $permissiveAcl
-    & $offlineInstaller -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port
+    Invoke-OfflineTestInstall
     $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
     Assert-True ($config.managementKey -ceq $key) 'Installer stores the derived room key.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw) -notmatch $roomKey) 'Plain room key is not persisted.'
@@ -96,7 +145,7 @@ try {
     Assert-SecureAcl (Join-Path $installPath 'config.json')
     Assert-SecureAcl (Join-Path $installPath 'StandaloneAgent.ps1')
     Test-AgentDiscovery $port $key $deviceId
-    & $offlineInstaller -ManagementKey $key -InstallPath $installPath -TaskName $taskName -Port $port
+    Invoke-OfflineTestInstall -LegacyManagementKey
     $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
     Assert-True ($config.deviceId -eq $deviceId) 'Reinstall preserves the saved Android device ID.'
     Test-AgentDiscovery $port $key $deviceId
@@ -111,7 +160,8 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $installPath)) 'Uninstall removes the dedicated installation directory.'
     Assert-True (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 'Uninstall removes the task.'
     Assert-True (-not (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue)) 'Uninstall removes the firewall rule.'
-    Write-Output 'INSTALLATION_SMOKE_TEST=PASS (8-character room key, legacy reinstall, ACL, SYSTEM task, firewall, authenticated state, uninstall)'
+    $mode = if ($InstallerExe) { 'single EXE + stdin room key' } else { 'PowerShell + legacy reinstall' }
+    Write-Output "INSTALLATION_SMOKE_TEST=PASS ($mode, ACL, SYSTEM task, firewall, authenticated state, stable reinstall, uninstall)"
 }
 finally {
     Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -121,5 +171,10 @@ finally {
         $resolved = [IO.Path]::GetFullPath($installPath)
         if ($resolved -ne (Join-Path $env:TEMP "LanPowerSmoke-$testId")) { throw 'Unexpected cleanup path.' }
         Remove-Item -LiteralPath $resolved -Recurse -Force
+    }
+    if ($packagedRoot -and (Test-Path -LiteralPath $packagedRoot)) {
+        if ([IO.Path]::GetFullPath($packagedRoot) -ne (Join-Path $env:TEMP "LanPowerPackaged-$testId")) { throw 'Unexpected packaged EXE cleanup path.' }
+        if (Test-Path -LiteralPath $packagedExe) { Remove-Item -LiteralPath $packagedExe -Force }
+        Remove-Item -LiteralPath $packagedRoot -Force
     }
 }

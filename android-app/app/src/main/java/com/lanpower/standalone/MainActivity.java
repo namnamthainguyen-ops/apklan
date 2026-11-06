@@ -3,10 +3,13 @@ package com.lanpower.standalone;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.wifi.WifiManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -22,6 +25,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.text.DateFormat;
 import java.util.ArrayList;
@@ -137,11 +141,20 @@ public final class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.rgb(244, 246, 248));
+        LinearLayout header = row();
+        header.setPadding(dp(18), dp(12), dp(18), dp(12));
+        header.setBackgroundColor(NAVY);
         title = text("Các phòng", 22, Color.WHITE);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setPadding(dp(18), dp(17), dp(18), dp(17));
-        title.setBackgroundColor(NAVY);
-        root.addView(title, matchWrap());
+        header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        LinearLayout brand = column();
+        brand.setGravity(Gravity.END);
+        TextView mark = text(getString(R.string.brand_name), 17, Color.WHITE);
+        mark.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        brand.addView(mark);
+        brand.addView(text(getString(R.string.app_name), 11, Color.rgb(205, 224, 240)));
+        header.addView(brand);
+        root.addView(header, matchWrap());
 
         LinearLayout navigation = row();
         navigation.setPadding(dp(10), dp(8), dp(10), dp(4));
@@ -169,6 +182,23 @@ public final class MainActivity extends Activity {
         content.setPadding(dp(12), dp(6), dp(12), dp(24));
         scroll.addView(content, matchWrap());
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        LinearLayout footer = row();
+        footer.setPadding(dp(14), dp(7), dp(14), dp(7));
+        footer.setBackgroundColor(Color.WHITE);
+        footer.addView(text(getString(R.string.company_name), 11, Color.DKGRAY),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView website = text(getString(R.string.company_website_label), 12, BLUE);
+        website.setContentDescription(getString(R.string.company_website_url));
+        website.setPadding(dp(10), dp(5), 0, dp(5));
+        website.setOnClickListener(view -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(getString(R.string.company_website_url))));
+            } catch (ActivityNotFoundException error) {
+                Toast.makeText(this, R.string.browser_unavailable, Toast.LENGTH_LONG).show();
+            }
+        });
+        footer.addView(website);
+        root.addView(footer, matchWrap());
         setContentView(root);
     }
 

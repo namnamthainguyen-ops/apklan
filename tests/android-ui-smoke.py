@@ -88,6 +88,16 @@ def wait_text(text):
                     f"Expected status was not found: {text}")
 
 
+def assert_branding():
+    tree = ui()
+    texts = {node.attrib.get("text", "") for node in tree.iter("node")}
+    for label in ["Room TN20", "TN20", "Công ty TNHH TN20", "20.com.vn"]:
+        assert label in texts, f"Missing Room TN20 branding: {label}"
+    assert any(node.attrib.get("text") == "20.com.vn" and node.attrib.get("content-desc") == "https://20.com.vn"
+               for node in tree.iter("node")), "Website label does not identify the TN20 website"
+    print("ANDROID_BRANDING=PASS (Room TN20, TN20, company and website)")
+
+
 def tap_text(text, transition=None):
     tap(lambda node: node.get("text", "").casefold() == text.casefold(), transition)
 
@@ -271,6 +281,7 @@ if "--prepare-key-only" in sys.argv:
 if "--existing-key" not in sys.argv:
     control("/reset", {})
 wait_text("Các phòng")
+assert_branding()
 if "--existing-key" in sys.argv:
     open_room("Phòng cũ")
     assert visible_devices() == {"CI-L-04"}, "Saved legacy PC was not migrated while offline"

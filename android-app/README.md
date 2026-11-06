@@ -1,6 +1,8 @@
-# LanPower Standalone Android
+# Room TN20 Android
 
-App Android 1.1.0 quản lý nhiều phòng trực tiếp trong LAN, không dùng API hay máy chủ trung tâm. Yêu cầu Android 8.0 (API 26) trở lên.
+**Room TN20 1.1.1**, thương hiệu **TN20** của **Công ty TNHH TN20**, quản lý nhiều phòng trực tiếp trong LAN, không dùng API hay máy chủ trung tâm. Website: [20.com.vn](https://20.com.vn). Link trong app chỉ mở khi người dùng chạm. Yêu cầu Android 8.0 (API 26) trở lên.
+
+Tên hiển thị và giao diện nhận thương hiệu mới; applicationId `com.lanpower.standalone`, vùng lưu dữ liệu và khóa mã hóa vẫn giữ nguyên để nâng cấp mà không mất phòng/máy đã lưu. Bản APK nâng cấp sử dụng cùng chứng thư ký với các bản trước.
 
 - Tạo phòng bằng tên và key tự chọn đúng 8 ký tự ASCII hiển thị, gồm chữ, số hoặc ký tự đặc biệt, không có khoảng trắng; phân biệt hoa/thường. Khoảng trắng thừa ở hai đầu được bỏ qua. Dùng đúng cùng key khi cài agent Windows trong phòng.
 - Mỗi phòng phải dùng key riêng để máy không xuất hiện ở nhiều phòng. Nhấn giữ thẻ phòng để xóa phòng, khóa và danh sách máy khỏi app sau khi xác nhận; thao tác này không thay đổi cấu hình máy Windows.

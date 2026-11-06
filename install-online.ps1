@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $AgentUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/StandaloneAgent.ps1'
-$AgentSha256 = '5F29D2DF80DBBAF1A5B5A9D51E76D14EBEC902FAF73EA054017CBA5EF5378006'
+$AgentSha256 = 'C3164204BC318D13D8C4D4533F3E670AB5AF33693719232D9D2031D56679B99F'
 $CoreUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Install-Core.ps1'
 $CoreSha256 = 'DC0BA840086831148DC9F13CBB8A7EE8CFE76250922160A5DCAC4E81817EE503'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()

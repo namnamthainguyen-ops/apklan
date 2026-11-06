@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">LanPower Standalone</string>
+    <string name="app_name">Room TN20</string>
+    <string name="brand_name">TN20</string>
+    <string name="company_name">Công ty TNHH TN20</string>
+    <string name="company_website_label">20.com.vn</string>
+    <string name="company_website_url" translatable="false">https://20.com.vn</string>
+    <string name="browser_unavailable">Cần trình duyệt để mở website công ty.</string>
 </resources>

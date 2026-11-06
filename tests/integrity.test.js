@@ -30,9 +30,18 @@ test('documented online command pins the exact installer bytes', () => {
 
 test('documented release APK checksum matches the published file', () => {
   const readme = read('README.md');
-  const apk = readme.match(/release\/(LanPowerStandalone-[\w.\-]+\.apk)/);
+  const apk = readme.match(/release\/(RoomTN20-[\w.\-]+\.apk)/) || readme.match(/release\/(LanPowerStandalone-[\w.\-]+\.apk)/);
   assert.ok(apk, 'README needs a release APK path');
-  const hash = readme.match(/SHA-256: ([A-F0-9]{64})/);
+  const hash = readme.match(/APK SHA-256: ([A-F0-9]{64})/) || readme.match(/SHA-256: ([A-F0-9]{64})/);
   assert.ok(hash, 'README needs a release APK checksum');
   assert.equal(hash[1], sha256(`release/${apk[1]}`));
+});
+
+test('documented Room TN20 client EXE checksum matches the published installer', () => {
+  const readme = read('README.md');
+  const exe = readme.match(/release\/(RoomTN20-ClientSetup-[\w.\-]+\.exe)/);
+  assert.ok(exe, 'README needs the branded Room TN20 installer link');
+  const hash = readme.match(/EXE SHA-256: ([A-F0-9]{64})/);
+  assert.ok(hash, 'README needs an explicit EXE checksum');
+  assert.equal(hash[1], sha256(`release/${exe[1]}`));
 });
