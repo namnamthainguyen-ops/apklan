@@ -46,5 +46,5 @@ function Invoke-VerificationCommand {
 }
 
 Invoke-VerificationCommand '--verify-payload' @('PAYLOAD_VERIFY=PASS', 'ROOM_KEY_KDF=PASS', 'UPDATER_SHA256=', 'PUBLIC_KEY_SHA256=')
-Invoke-VerificationCommand '--verify-ui' @('UI_CONTRACT=PASS')
+Invoke-VerificationCommand '--verify-ui' @('UI_CONTRACT=PASS', 'SUCCESS_AUTO_CLOSE=PASS')
 Write-Output 'CLIENT_INSTALLER_VERIFICATION=PASS (embedded source hashes, KDF and in-process form contract; no installation)'

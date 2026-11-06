@@ -1,6 +1,6 @@
 # Room TN20 Android
 
-**Room TN20 1.2.2**, thương hiệu **TN20** của **Công ty TNHH TN20**, quản lý nhiều phòng trực tiếp trong LAN hoặc VPN có định tuyến tới máy con, không dùng API hay máy chủ trung tâm. Website: [20.com.vn](https://20.com.vn). Link trong app chỉ mở khi người dùng chạm. Yêu cầu Android 8.0 (API 26) trở lên.
+**Room TN20 1.2.3**, thương hiệu **TN20** của **Công ty TNHH TN20**, quản lý nhiều phòng trực tiếp trong LAN hoặc VPN có định tuyến tới máy con, không dùng API hay máy chủ trung tâm. Website: [20.com.vn](https://20.com.vn). Link trong app chỉ mở khi người dùng chạm. Yêu cầu Android 8.0 (API 26) trở lên.
 
 Tên hiển thị và giao diện nhận thương hiệu mới; applicationId `com.lanpower.standalone`, vùng lưu dữ liệu và khóa mã hóa vẫn giữ nguyên để nâng cấp mà không mất phòng/máy đã lưu. Bản APK nâng cấp sử dụng cùng chứng thư ký với các bản trước.
 
@@ -27,6 +27,8 @@ Build bằng Android Studio hoặc Gradle 8.9 + JDK 17 + Android SDK Platform/Bu
 gradle testDebugUnitTest lintDebug assembleDebug
 ```
 
-APK debug được tạo tại `app/build/outputs/apk/debug/app-debug.apk`.
+APK debug phục vụ kiểm thử được tạo tại `app/build/outputs/apk/debug/app-debug.apk`. Bản người dùng tải là `release/RoomTN20-1.2.3.apk`, build release với `debuggable=false`, ký bằng cùng chứng thư cũ để nâng cấp giữ dữ liệu. Chứng thư hiện tại vẫn mang tên Android Debug; không được hiểu là đã có xác minh Google Play/Play Protect. Xem phần cảnh báo bảo mật trong README chính.
+
+CI chạy toàn bộ bộ thử debug và nâng cấp APK phát hành thật bằng giao diện công khai. Bài thử release không dùng `run-as`, không bật tuyến fixture hay cờ tắt cập nhật; IP fixture được nhập qua mục Mạng LAN/VPN như người dùng bình thường. CI kiểm tra chữ ký và bảo đảm APK phát hành không debuggable.
 
 JVM tests kiểm tra các vector KDF/HMAC độc lập, ràng buộc chữ ký/relay MAC/update metadata, thao tác UWF, Magic Packet, phân tách phòng, VPN IPv4/CIDR/giới hạn quét, RS256 manifest/tamper/wrong-key/rollback/allowlist. CI còn có fixture UDP để chạy UI trên emulator. Chỉ bản debug trên emulator có thể bật fixture bằng intent `--ez lanpower_ci true`; khi bật, app thêm đích `10.0.2.2` để liên lạc fixture trên máy host và tắt cập nhật mạng. `--ez disable_updates true` tắt riêng cập nhật trên debug/emulator để kiểm thử unicast VPN thật mà không thêm đường fixture. Điện thoại thật và bản release bỏ qua các cờ kiểm thử này.

@@ -58,5 +58,19 @@ adb uninstall com.lanpower.standalone
 adb install release/LanPowerStandalone-1.0.0-debug.apk
 adb shell am start -W -n com.lanpower.standalone/.MainActivity
 python3 tests/android-ui-smoke.py --prepare-key-only
-adb install -r release/RoomTN20-1.2.2.apk
-verify_app published-upgrade --existing-key
+adb install -r release/RoomTN20-1.2.3.apk
+mkdir -p emulator-evidence/published-release-upgrade
+curl -fsS -X POST -H 'Content-Type: application/json' -d '{"devices":{"00000000-0000-4000-8000-000000000004":{"online":false}}}' http://127.0.0.1:17841/set > /dev/null
+adb shell am start -W -n com.lanpower.standalone/.MainActivity | tee emulator-evidence/published-release-upgrade/launch.txt
+python3 tests/android-release-smoke.py | tee emulator-evidence/published-release-upgrade/ui-test.txt
+adb shell uiautomator dump /sdcard/lanpower-ui.xml
+adb pull /sdcard/lanpower-ui.xml emulator-evidence/published-release-upgrade/ui.xml
+adb exec-out screencap -p > emulator-evidence/published-release-upgrade/screenshot.png
+adb logcat -d > emulator-evidence/published-release-upgrade/logcat.txt
+release_pid=$(adb shell pidof com.lanpower.standalone | tr -d '\r')
+test -n "$release_pid"
+adb logcat -d --pid="$release_pid" > emulator-evidence/published-release-upgrade/app-logcat.txt
+if grep -q 'FATAL EXCEPTION' emulator-evidence/published-release-upgrade/app-logcat.txt; then
+  echo 'Published release crashed.' >&2
+  exit 1
+fi

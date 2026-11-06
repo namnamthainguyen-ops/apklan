@@ -16,7 +16,13 @@ function Assert-LanPowerWritableSystem {
     try {
         $filter = Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Filter -ErrorAction Stop
     }
-    catch { return } # UWF is optional; its provider is absent on ordinary Windows.
+    catch {
+        $nativeRoot = Get-LanPowerNativeSystemDirectory
+        if (Test-Path -LiteralPath (Join-Path $nativeRoot 'uwfmgr.exe')) {
+            throw 'UWF_STATE_UNAVAILABLE: UWF tools exist but its protection state cannot be read. Restart Windows or check locally before reinstalling.'
+        }
+        return # UWF is optional and its tools/provider are absent on ordinary Windows.
+    }
     $active = $false
     if ($filter.CurrentEnabled) {
         try {
@@ -35,30 +41,146 @@ function Assert-LanPowerWritableSystem {
     }
 }
 
-function Initialize-LanPowerUwfFeature {
+function Test-LanPowerAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run PowerShell as Administrator.' }
+    try { return ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
+    finally { $identity.Dispose() }
+}
+
+function Get-LanPowerNativeSystemDirectory {
+    $windows = [Environment]::GetFolderPath([Environment+SpecialFolder]::Windows)
+    if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) { return Join-Path $windows 'Sysnative' }
+    return Join-Path $windows 'System32'
+}
+
+function Get-LanPowerWindowsEdition {
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $key = $base.OpenSubKey('SOFTWARE\Microsoft\Windows NT\CurrentVersion')
+        if (-not $key) { return 'unknown' }
+        try { return [string]$key.GetValue('EditionID', 'unknown') }
+        finally { $key.Dispose() }
+    }
+    catch { return 'unknown' }
+    finally { $base.Dispose() }
+}
+
+function Invoke-LanPowerDism {
+    param([string[]]$Arguments)
+    $executable = Join-Path (Get-LanPowerNativeSystemDirectory) 'dism.exe'
+    if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { throw "UWF_DISM_MISSING: $executable" }
+    $quoted = foreach ($argument in $Arguments) {
+        if ($argument.Contains('"') -or $argument.Contains("`r") -or $argument.Contains("`n")) { throw 'Invalid DISM argument.' }
+        '"' + $argument + '"'
+    }
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $executable
+    $start.Arguments = $quoted -join ' '
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $start
+    try {
+        if (-not $process.Start()) { throw 'UWF_DISM_START_FAILED' }
+        # Drain both streams concurrently; hosted PowerShell has no console host
+        # and sequential reads can deadlock a verbose servicing process.
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        return [pscustomobject]@{ ExitCode = $process.ExitCode; Output = $stdout.GetAwaiter().GetResult() + "`n" + $stderr.GetAwaiter().GetResult() }
+    }
+    finally { $process.Dispose() }
+}
+
+function Get-LanPowerUwfFeatureInfo {
+    param([string]$LogPath)
+    $arguments = @('/English', '/Online', '/Get-FeatureInfo', '/FeatureName:Client-UnifiedWriteFilter')
+    if ($LogPath) { $arguments += '/LogPath:' + $LogPath }
+    $result = Invoke-LanPowerDism -Arguments $arguments
+    $state = 'Unknown'
+    if ($result.ExitCode -eq 0 -and $result.Output -match '(?im)^\s*State\s*:\s*([^\r\n]+)') {
+        $state = switch ($Matches[1].Trim()) {
+            'Enabled' { 'Enabled' }
+            'Enable Pending' { 'EnablePending' }
+            'Disable Pending' { 'DisablePending' }
+            'Disabled' { 'Disabled' }
+            'Disabled with Payload Removed' { 'DisabledWithPayloadRemoved' }
+            default { 'Unknown' }
+        }
+    }
+    return [pscustomobject]@{ State = $state; ExitCode = $result.ExitCode; Output = $result.Output }
+}
+
+function Test-LanPowerUwfRuntime {
+    if (-not (Test-Path -LiteralPath (Join-Path (Get-LanPowerNativeSystemDirectory) 'uwfmgr.exe') -PathType Leaf)) { return $false }
+    try {
+        $filter = Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Filter -OperationTimeoutSec 5 -ErrorAction Stop
+        return $null -ne $filter
+    }
+    catch { return $false }
+}
+
+function Get-LanPowerDismFailure {
+    param([int]$ExitCode, [string]$Edition, [string]$LogPath)
+    $hex = '0x' + ([BitConverter]::ToUInt32([BitConverter]::GetBytes([int32]$ExitCode), 0)).ToString('X8')
+    $hint = switch ($hex) {
+        '0x800F080C' { 'The Windows image does not contain the UWF feature. UWF requires Enterprise, Education or IoT Enterprise.' }
+        '0x800F081F' { 'Windows component source files are missing. Supply a repair source matching this Windows build or allow Windows Update.' }
+        '0x800F0906' { 'Windows could not download the feature source. Check Internet access and Windows Update policy.' }
+        '0x800F0954' { 'Windows servicing/WSUS policy prevented downloading the feature source. Check the optional-component repair policy.' }
+        '0x00000BC2' { 'A restart is required to finish Windows servicing.' }
+        default { 'Windows servicing did not complete. Check the DISM log for the underlying component error.' }
+    }
+    return "DISM exit $ExitCode ($hex). Edition: $Edition. $hint Log: $LogPath"
+}
+
+function Initialize-LanPowerUwfFeature {
+    param([string]$InstallPath = "$env:ProgramData\LanPowerStandalone")
+    if (-not (Test-LanPowerAdministrator)) { throw 'Run PowerShell as Administrator.' }
     Assert-LanPowerWritableSystem
-    $feature = Get-WindowsOptionalFeature -Online -FeatureName 'Client-UnifiedWriteFilter' -ErrorAction Stop
+    $edition = Get-LanPowerWindowsEdition
+    $windows = [Environment]::GetFolderPath([Environment+SpecialFolder]::Windows)
+    $logPath = Join-Path $windows 'Logs\DISM\dism.log'
+    # The installed directory already has a SYSTEM/Administrators-only ACL.
+    # Reuse it for diagnostics, without creating or changing an arbitrary path.
+    if (Test-Path -LiteralPath (Join-Path $InstallPath 'config.json') -PathType Leaf) {
+        $safeRoot = Get-LanPowerInstallPath $InstallPath
+        $logPath = Join-Path $safeRoot 'uwf-preparation.log'
+    }
+    if ($edition -match '^(Core|Professional|Server)') {
+        throw "UWF_UNSUPPORTED_EDITION: $edition. UWF requires Windows Enterprise, Education or IoT Enterprise. The LAN power agent remains usable. Log: $logPath"
+    }
+    $feature = Get-LanPowerUwfFeatureInfo -LogPath $logPath
+    if ($feature.ExitCode -ne 0) { throw ('UWF_FEATURE_QUERY_FAILED: ' + (Get-LanPowerDismFailure $feature.ExitCode $edition $logPath)) }
     if ($feature.State -eq 'Enabled') {
-        Write-Host 'UWF feature is already installed. C: protection has not been changed.'
-        return
+        $restart = -not (Test-LanPowerUwfRuntime)
+        return [pscustomobject]@{ Status = $(if ($restart) { 'restart-required' } else { 'ready' }); RestartRequired = $restart;
+            Message = $(if ($restart) { 'UWF is installed but its runtime is not available yet. Restart Windows before using Freeze.' } else { 'UWF feature is already installed. C: protection has not been changed.' });
+            Edition = $edition; FeatureState = 'Enabled'; LogPath = $logPath }
     }
-    if ($feature.State -eq 'EnablePending') {
-        Write-Host 'UWF_RESTART_REQUIRED: Restart manually to finish installing the UWF feature.'
-        return
+    if ($feature.State -in @('EnablePending', 'DisablePending')) {
+        return [pscustomobject]@{ Status = 'restart-required'; RestartRequired = $true; Message = 'UWF_RESTART_REQUIRED: Restart Windows manually, then run the installer again if UWF was being disabled. C: protection has not been changed.'; Edition = $edition; FeatureState = $feature.State; LogPath = $logPath }
     }
-    $dism = Join-Path $env:WINDIR 'System32\dism.exe'
-    $process = Start-Process -FilePath $dism -ArgumentList '/online','/enable-feature','/featureName:Client-DeviceLockdown','/featureName:Client-UnifiedWriteFilter','/All','/NoRestart' -WindowStyle Hidden -Wait -PassThru
-    if ($process.ExitCode -notin @(0, 3010)) { throw "UWF_PREPARE_FAILED: DISM exit code $($process.ExitCode). Check whether this Windows edition supports UWF." }
-    Write-Host 'UWF feature prepared. Restart manually before using remote Freeze. C: protection has not been changed.'
+    if ($feature.State -notin @('Disabled', 'DisabledWithPayloadRemoved')) { throw "UWF_FEATURE_STATE_UNKNOWN: Edition $edition. Log: $logPath" }
+    # /All restores the parent dependency without naming an unrelated feature.
+    # /NoRestart is mandatory: preparing UWF never reboots or protects C:.
+    $result = Invoke-LanPowerDism -Arguments @('/English', '/Online', '/Enable-Feature', '/FeatureName:Client-UnifiedWriteFilter', '/All', '/NoRestart', ('/LogPath:' + $logPath))
+    if ($result.ExitCode -notin @(0, 3010)) { throw ('UWF_PREPARE_FAILED: ' + (Get-LanPowerDismFailure $result.ExitCode $edition $logPath)) }
+    $verified = Get-LanPowerUwfFeatureInfo -LogPath $logPath
+    if ($verified.ExitCode -ne 0) { throw ('UWF_VERIFY_FAILED: ' + (Get-LanPowerDismFailure $verified.ExitCode $edition $logPath)) }
+    if ($verified.State -notin @('Enabled', 'EnablePending')) { throw "UWF_VERIFY_FAILED: Feature state is $($verified.State) after preparation. Edition: $edition. Log: $logPath" }
+    $restart = $result.ExitCode -eq 3010 -or $verified.State -eq 'EnablePending' -or -not (Test-LanPowerUwfRuntime)
+    $message = if ($restart) { 'UWF_RESTART_REQUIRED: UWF was prepared. Restart Windows manually before using Freeze. C: protection has not been changed.' }
+        else { 'UWF feature is installed and ready. C: protection has not been changed.' }
+    return [pscustomobject]@{ Status = $(if ($restart) { 'restart-required' } else { 'ready' }); RestartRequired = $restart; Message = $message; Edition = $edition; FeatureState = $verified.State; LogPath = $logPath }
 }
 
 function Invoke-LanPowerUwfPreparation {
-    param([switch]$SkipUwfPreparation)
+    param([switch]$SkipUwfPreparation, [string]$InstallPath = "$env:ProgramData\LanPowerStandalone")
     if ($SkipUwfPreparation) { return }
-    try { Initialize-LanPowerUwfFeature }
+    try { $result = Initialize-LanPowerUwfFeature -InstallPath $InstallPath; if ($result) { Write-Host $result.Message } }
     catch { Write-Warning ('The power agent was installed, but UWF preparation could not finish: ' + $_.Exception.Message) }
 }
 
@@ -89,7 +211,7 @@ function Get-LanPowerInstallPath {
             throw 'InstallPath must be a directory.'
         }
         foreach ($item in @(Get-ChildItem -LiteralPath $fullPath -Force)) {
-            if ($item.PSIsContainer -or $item.Name -notin @('StandaloneAgent.ps1', 'Install-Core.ps1', 'Update-Agent.ps1', 'Update-PublicKey.xml', 'config.json', 'update-status.json') -or
+            if ($item.PSIsContainer -or $item.Name -notin @('StandaloneAgent.ps1', 'Install-Core.ps1', 'Update-Agent.ps1', 'Update-PublicKey.xml', 'config.json', 'update-status.json', 'uwf-preparation.log', 'uwf-preparation.log.bak') -or
                 ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 throw 'InstallPath contains unrelated files or reparse points; choose a dedicated directory.'
             }
@@ -189,6 +311,73 @@ function Enter-LanPowerInstallLock {
     catch { $mutex.Dispose(); throw }
 }
 
+function Get-LanPowerHandshakeHmac {
+    param([string]$Key, [string]$Text)
+    $bytes = [Convert]::FromBase64String($Key)
+    $hmac = [Security.Cryptography.HMACSHA256]::new($bytes)
+    try { return [Convert]::ToBase64String($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text))) }
+    finally { $hmac.Dispose(); [Array]::Clear($bytes, 0, $bytes.Length) }
+}
+
+function Test-LanPowerHandshakeSignature {
+    param([string]$Key, [string]$Text, [string]$Signature)
+    try {
+        $actual = [Convert]::FromBase64String($Signature)
+        $expected = [Convert]::FromBase64String((Get-LanPowerHandshakeHmac $Key $Text))
+        if ($actual.Length -ne 32 -or $expected.Length -ne 32) { return $false }
+        $difference = 0
+        for ($index = 0; $index -lt 32; $index++) { $difference = $difference -bor ($actual[$index] -bxor $expected[$index]) }
+        return $difference -eq 0
+    }
+    catch { return $false }
+}
+
+function Wait-LanPowerInstalledAgent {
+    param([string]$InstallPath, [string]$RoomKey, [int]$Port = 17840,
+        [string]$ExpectedVersion = '1.2.3', [int]$ExpectedVersionCode = 8,
+        [ValidateRange(1, 60)][int]$TimeoutSeconds = 20, [string]$ManagementKey)
+    if ($RoomKey) { $ManagementKey = ConvertTo-LanPowerManagementKey $RoomKey }
+    try {
+        if ([Convert]::FromBase64String($ManagementKey).Length -ne 32) { throw 'Invalid installed key.' }
+        $config = [IO.File]::ReadAllText((Join-Path $InstallPath 'config.json')) | ConvertFrom-Json
+        $deviceId = [string]$config.deviceId
+        $parsedId = [Guid]::Empty
+        if (-not [Guid]::TryParse($deviceId, [ref]$parsedId) -or [string]$config.managementKey -cne $ManagementKey -or
+            [int]$config.port -ne $Port -or [string]$config.version -cne $ExpectedVersion -or [int]$config.versionCode -ne $ExpectedVersionCode) {
+            throw 'Installed identity, key, port or version differs from the requested installation.'
+        }
+    }
+    catch { throw 'CLIENT_CONFIG_VERIFY_FAILED: Khong xac minh duoc cau hinh client vua cai. Hay chay lai bo cai.' }
+    $socket = [Net.Sockets.UdpClient]::new()
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        $socket.Connect('127.0.0.1', $Port)
+        $socket.Client.ReceiveTimeout = 500
+        while ($watch.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+            $nonce = [Guid]::NewGuid().ToString('N')
+            $request = @{ type = 'discover'; nonce = $nonce; signature = (Get-LanPowerHandshakeHmac $ManagementKey "discover`n$nonce") } | ConvertTo-Json -Compress
+            $requestBytes = [Text.Encoding]::UTF8.GetBytes($request)
+            [void]$socket.Send($requestBytes, $requestBytes.Length)
+            try {
+                $remote = [Net.IPEndPoint]::new([Net.IPAddress]::Loopback, $Port)
+                $bytes = $socket.Receive([ref]$remote)
+                if ($bytes.Length -gt 8192) { continue }
+                $reply = [Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
+                if ($reply.type -cne 'discovery' -or $reply.requestNonce -cne $nonce -or $reply.deviceId -cne $deviceId) { continue }
+                if (-not (Test-LanPowerHandshakeSignature $ManagementKey "discovery`n$nonce`n$deviceId`n$($reply.hostname)`n$($reply.mac)" ([string]$reply.signature))) { continue }
+                if ($reply.agentVersion -cne $ExpectedVersion -or [int]$reply.clientVersionCode -ne $ExpectedVersionCode) { continue }
+                if (-not (Test-LanPowerHandshakeSignature $ManagementKey "state`n$nonce`n$deviceId`n$($reply.agentVersion)`n$($reply.uwf)`n$($reply.capabilities)" ([string]$reply.stateSignature))) { continue }
+                if (-not (Test-LanPowerHandshakeSignature $ManagementKey "update`n$nonce`n$deviceId`n$($reply.clientVersionCode)`n$($reply.latestVersion)`n$($reply.updateStatus)`n$($reply.updateMessage)" ([string]$reply.updateSignature))) { continue }
+                return [pscustomobject]@{ Ready = $true; DeviceId = $deviceId; Version = $ExpectedVersion; VersionCode = $ExpectedVersionCode }
+            }
+            catch { } # A startup delay or unauthenticated packet cannot count as success.
+            Start-Sleep -Milliseconds 100
+        }
+        throw 'CLIENT_NOT_RESPONDING: Da ghi tep nhung client chua phan hoi hop le. Chon Cai / Cai de de thu lai; chua bao cai dat thanh cong.'
+    }
+    finally { $watch.Stop(); $socket.Dispose() }
+}
+
 function Invoke-LanPowerInstall {
     [CmdletBinding(DefaultParameterSetName = 'RoomKey')]
     param(
@@ -267,8 +456,8 @@ function Invoke-LanPowerInstall {
         vpnNetworks = @($VpnNetworks)
         agentTaskName = $TaskName
         updateTaskName = $updateTaskName
-        version = '1.2.2'
-        versionCode = 7
+        version = '1.2.3'
+        versionCode = 8
         installedAt = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json
     Set-LanPowerAtomicFile $configPath ([Text.Encoding]::ASCII.GetBytes($newConfig))
@@ -291,7 +480,8 @@ function Invoke-LanPowerInstall {
     $updateSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 20) -MultipleInstances IgnoreNew -StartWhenAvailable
     Register-ScheduledTask -TaskName $updateTaskName -Action $updateAction -Trigger @($updateStartup, $updatePeriodic) -Settings $updateSettings -Principal $taskPrincipal -Force | Out-Null
     Start-ScheduledTask -TaskName $TaskName
-    Invoke-LanPowerUwfPreparation -SkipUwfPreparation:$SkipUwfPreparation
+    Invoke-LanPowerUwfPreparation -SkipUwfPreparation:$SkipUwfPreparation -InstallPath $InstallPath
+    [void](Wait-LanPowerInstalledAgent -InstallPath $InstallPath -ManagementKey $ManagementKey -Port $Port)
     Write-Host "Standalone agent installed. UDP $Port is open to LocalSubnet." -ForegroundColor Green
     }
     finally { $installMutex.ReleaseMutex(); $installMutex.Dispose() }

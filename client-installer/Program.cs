@@ -22,8 +22,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("TN20 - Trình cài client quản lý máy tính trong mạng LAN")]
 [assembly: AssemblyCompany("Công ty TNHH TN20")]
 [assembly: AssemblyProduct("Room TN20")]
-[assembly: AssemblyVersion("1.2.2.0")]
-[assembly: AssemblyFileVersion("1.2.2.0")]
+[assembly: AssemblyVersion("1.2.3.0")]
+[assembly: AssemblyFileVersion("1.2.3.0")]
 [assembly: TargetFramework(".NETFramework,Version=v4.7.2", FrameworkDisplayName = ".NET Framework 4.7.2")]
 
 namespace LanPower.ClientSetup
@@ -91,6 +91,7 @@ namespace LanPower.ClientSetup
     {
         internal string Message;
         internal bool UwfWarning;
+        internal bool RestartRequired;
     }
 
     internal sealed class SetupUpdate
@@ -110,7 +111,33 @@ namespace LanPower.ClientSetup
 
         internal static string HideKey(string message, string key)
         {
-            return String.IsNullOrEmpty(key) ? message : message.Replace(key, "[hidden]");
+            if (String.IsNullOrEmpty(key)) return message;
+            message = message.Replace(key, "[hidden]");
+            byte[] password = Encoding.UTF8.GetBytes(key);
+            try
+            {
+                using (Rfc2898DeriveBytes derive = new Rfc2898DeriveBytes(password, Encoding.UTF8.GetBytes("LanPower/RoomKey/v1"), 210000, HashAlgorithmName.SHA256))
+                    return message.Replace(Convert.ToBase64String(derive.GetBytes(32)), "[hidden]");
+            }
+            finally { Array.Clear(password, 0, password.Length); }
+        }
+
+        internal static string ExplainInstallError(string message)
+        {
+            if (message.Contains("UWF_ACTIVE_DISABLE_AND_RESTART"))
+                return "Ổ C đang đóng băng. Mở đóng băng và khởi động lại Windows một lần, sau đó chạy bộ cài để cài mới hoặc cài đè bền vững.";
+            if (message.Contains("UWF_STATE_UNAVAILABLE"))
+                return "Chưa đọc được trạng thái bảo vệ ổ C. Khởi động lại Windows rồi thử cài đè; bộ cài cần xác nhận ổ C có thể ghi bền vững.";
+            if (message.Contains("CLIENT_NOT_RESPONDING"))
+                return "Đã ghi tệp nhưng client chưa phản hồi đúng khóa và phiên bản. Chọn Cài / Cài đè để thử lại. Cài đặt chưa được xác nhận thành công.";
+            if (message.Contains("CLIENT_CONFIG_VERIFY_FAILED"))
+                return "Chưa xác minh được cấu hình client vừa cài. Hãy chạy lại bộ cài bằng quyền Administrator.";
+            string hint = message.Contains("0x800F081F") ? "Windows thiếu nguồn thành phần UWF đúng phiên bản. Cần nguồn Windows phù hợp hoặc Windows Update hoạt động."
+                : message.Contains("0x800F0954") ? "Chính sách Windows Update/WSUS đang ngăn tải thành phần UWF."
+                : message.Contains("0x800F0906") ? "Windows không tải được thành phần UWF. Kiểm tra kết nối và Windows Update."
+                : message.Contains("0x800F080C") || message.Contains("UWF_UNSUPPORTED_EDITION") ? "Ảnh Windows hiện tại không cung cấp tính năng UWF."
+                : "";
+            return String.IsNullOrEmpty(hint) ? message : hint + "\n\n" + message;
         }
 
         private static byte[] Resource(string name)
@@ -295,6 +322,9 @@ namespace LanPower.ClientSetup
                     catch (InvalidOperationException) { rejected = true; }
                     if (!rejected) throw new InvalidOperationException("Hosted PowerShell real-error self-test failed.");
                 }
+                string redacted = HideKey("Ab12!@#$ cyzk0ZNRJdMHxC4GnzJbLzNOi8QHwfrM55eKrEVMuu8=", "Ab12!@#$");
+                if (redacted.Contains("Ab12!@#$") || redacted.Contains("cyzk0ZNRJdMHxC4GnzJbLzNOi8QHwfrM55eKrEVMuu8="))
+                    throw new InvalidOperationException("Installer error redaction failed.");
             }
             if (writeOutput)
             {
@@ -387,25 +417,34 @@ namespace LanPower.ClientSetup
                             using (PowerShell powershell = PowerShell.Create())
                             {
                                 powershell.Runspace = runspace;
-                                powershell.AddCommand("Initialize-LanPowerUwfFeature");
-                                powershell.Invoke();
-                                ThrowErrors(powershell);
-                            }
-                            using (PowerShell powershell = PowerShell.Create())
-                            {
-                                powershell.Runspace = runspace;
-                                powershell.AddCommand("Get-WindowsOptionalFeature").AddParameter("Online").AddParameter("FeatureName", "Client-UnifiedWriteFilter");
+                                powershell.AddCommand("Initialize-LanPowerUwfFeature").AddParameter("InstallPath", installPath);
                                 System.Collections.ObjectModel.Collection<PSObject> features = powershell.Invoke();
                                 ThrowErrors(powershell);
-                                bool enabled = features.Count > 0 && features[0].Properties["State"] != null && features[0].Properties["State"].Value.ToString() == "Enabled";
-                                result.Message += enabled ? "\n\nUWF đã được chuẩn bị để dùng đóng băng C: từ app." : "\n\nCần khởi động lại máy để hoàn tất chuẩn bị UWF. Trình cài đặt không tự khởi động lại.";
+                                if (features.Count != 1 || features[0].Properties["Status"] == null || features[0].Properties["RestartRequired"] == null)
+                                    throw new InvalidOperationException("Không xác minh được kết quả chuẩn bị UWF.");
+                                string state = Convert.ToString(features[0].Properties["FeatureState"].Value);
+                                result.RestartRequired = Convert.ToBoolean(features[0].Properties["RestartRequired"].Value);
+                                result.UwfWarning = state != "Enabled" && state != "EnablePending";
+                                result.Message += result.UwfWarning
+                                    ? "\n\nUWF đang chờ hoàn tất thay đổi trước đó. Khởi động lại Windows rồi chạy lại bộ cài."
+                                    : result.RestartRequired ? "\n\nĐã chuẩn bị UWF. Cần khởi động lại Windows trước khi dùng đóng băng C:."
+                                    : "\n\nUWF đã sẵn sàng. Chọn đóng băng C: trong app khi cần.";
                             }
                         }
                         catch (Exception error)
                         {
                             result.UwfWarning = true;
-                            result.Message += "\n\nAgent bật/tắt đã cài thành công. UWF chưa được chuẩn bị; bạn có thể kiểm tra sau.\n" + HideKey(error.Message, roomKey);
+                            result.Message += "\n\nClient bật/tắt đã cài. UWF chưa được chuẩn bị.\n" + HideKey(ExplainInstallError(error.Message), roomKey);
                         }
+                    }
+                    if (progress != null) progress("Đang xác minh client đã chạy và nhận đúng khóa phòng…");
+                    using (PowerShell powershell = PowerShell.Create())
+                    {
+                        powershell.Runspace = runspace;
+                        powershell.AddCommand("Wait-LanPowerInstalledAgent").AddParameter("InstallPath", installPath).AddParameter("RoomKey", roomKey)
+                            .AddParameter("Port", port).AddParameter("ExpectedVersion", PayloadInfo.Version).AddParameter("ExpectedVersionCode", PayloadInfo.VersionCode);
+                        powershell.Invoke();
+                        ThrowErrors(powershell);
                     }
                     return result;
                 }
@@ -424,9 +463,13 @@ namespace LanPower.ClientSetup
         private readonly Label status = new Label();
         private readonly ProgressBar progress = new ProgressBar();
         private readonly LinkLabel updateLink = new LinkLabel();
+        private readonly System.Windows.Forms.Timer completionTimer = new System.Windows.Forms.Timer();
         private SetupUpdate setupUpdate;
         private readonly bool uiTest;
         private bool installing;
+        private bool completed;
+        private int completionSeconds;
+        private string completionMessage;
 
         internal SetupForm(bool testMode)
         {
@@ -440,7 +483,7 @@ namespace LanPower.ClientSetup
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
             Label title = new Label { Name = "BrandTitleLabel", Text = "Room TN20", AutoSize = false, Location = new Point(24, 17), Size = new Size(510, 40), Font = new Font("Segoe UI", 20F, FontStyle.Bold), ForeColor = Color.FromArgb(16, 42, 67) };
-            Label caption = new Label { Text = "Cài client quản lý LAN · dùng cùng khóa phòng trên app Android.", AutoSize = false, Location = new Point(26, 62), Size = new Size(505, 35) };
+            Label caption = new Label { Text = "Cài mới hoặc cài đè client · không cần gỡ bản cũ.", AutoSize = false, Location = new Point(26, 62), Size = new Size(505, 35) };
             Label keyLabel = new Label { Text = "Khóa phòng (đúng 8 ký tự, phân biệt hoa/thường)", AutoSize = false, Location = new Point(26, 106), Size = new Size(500, 26) };
             keyInput.Name = "RoomKeyInput";
             keyInput.AccessibleName = "Khóa phòng";
@@ -448,7 +491,7 @@ namespace LanPower.ClientSetup
             keyInput.Size = new Size(325, 30);
             keyInput.MaxLength = 256;
             keyInput.UseSystemPasswordChar = true;
-            keyInput.TextChanged += delegate { UpdateInstallButton(); };
+            keyInput.TextChanged += delegate { UpdateInstallButton(true); };
             toggleKey.Name = "ToggleKeyCheckBox";
             toggleKey.Text = "Hiện khóa";
             toggleKey.AutoSize = true;
@@ -469,7 +512,7 @@ namespace LanPower.ClientSetup
             status.Location = new Point(28, 305);
             status.Size = new Size(504, 78);
             installButton.Name = "InstallButton";
-            installButton.Text = "Cài đặt";
+            installButton.Text = "Cài / Cài đè";
             installButton.Location = new Point(302, 401);
             installButton.Size = new Size(112, 34);
             installButton.Enabled = false;
@@ -499,6 +542,8 @@ namespace LanPower.ClientSetup
             AcceptButton = installButton;
             CancelButton = closeButton;
             FormClosing += delegate(object sender, FormClosingEventArgs eventArgs) { if (installing) eventArgs.Cancel = true; };
+            completionTimer.Interval = 1000;
+            completionTimer.Tick += delegate { CompletionTick(); };
             Shown += async delegate
             {
                 if (uiTest) return;
@@ -531,13 +576,43 @@ namespace LanPower.ClientSetup
             finally { updateLink.Enabled = true; }
         }
 
-        private void UpdateInstallButton()
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) completionTimer.Dispose();
+            base.Dispose(disposing);
+        }
+
+        private void BeginCompletion(InstallResult result)
+        {
+            if (result.UwfWarning) throw new InvalidOperationException("Không tự đóng bộ cài khi UWF chưa hoàn tất.");
+            completed = true;
+            completionSeconds = 3;
+            completionMessage = result.RestartRequired ? "Cài đặt thành công. UWF cần khởi động lại Windows." : "Cài đặt thành công. Client đã chạy và nhận đúng khóa phòng.";
+            status.ForeColor = Color.FromArgb(32, 125, 70);
+            status.Text = completionMessage + "\nBộ cài tự đóng sau 3 giây.";
+            keyInput.Clear();
+            installButton.Enabled = false;
+            completionTimer.Start();
+        }
+
+        private void CompletionTick()
+        {
+            if (!completed) return;
+            completionSeconds--;
+            if (completionSeconds <= 0) { completionTimer.Stop(); Close(); return; }
+            status.Text = completionMessage + "\nBộ cài tự đóng sau " + completionSeconds + " giây.";
+        }
+
+        private void UpdateInstallButton(bool showHint = false)
         {
             bool valid = Regex.IsMatch(keyInput.Text, @"\A[\x21-\x7E]{8}\z");
-            installButton.Enabled = !installing && valid;
-            if (!installing && keyInput.Text.Length > 0)
+            installButton.Enabled = !installing && !completed && valid;
+            if (showHint && !installing && !completed && keyInput.Text.Length > 0)
+            {
+                status.ForeColor = Color.DimGray;
                 status.Text = (uiTest ? "Chế độ xem thử – không cài đặt. " : "") +
                     (valid ? "Khóa phòng hợp lệ. Chọn Cài đặt để tiếp tục." : "Khóa phòng cần đúng 8 ký tự ASCII, không chứa khoảng trắng.");
+            }
         }
 
         internal static void VerifyUiContract()
@@ -559,6 +634,20 @@ namespace LanPower.ClientSetup
                 if (form.installButton.Enabled || form.keyInput.Text.Length != 9) throw new InvalidOperationException("Long room key was truncated or accepted by preview UI.");
                 form.toggleKey.Checked = true;
                 if (form.keyInput.UseSystemPasswordChar) throw new InvalidOperationException("Password visibility toggle failed.");
+                bool warningRejected = false;
+                try { form.BeginCompletion(new InstallResult { UwfWarning = true }); }
+                catch (InvalidOperationException) { warningRejected = true; }
+                if (!warningRejected || form.completed) throw new InvalidOperationException("Partial UWF failure must not show full success or auto-close.");
+                form.BeginCompletion(new InstallResult { RestartRequired = true });
+                if (!form.completed || !form.completionTimer.Enabled || form.completionSeconds != 3 || form.installButton.Enabled || form.keyInput.Text.Length != 0 ||
+                    !form.status.Text.Contains("thành công") || !form.status.Text.Contains("khởi động lại"))
+                    throw new InvalidOperationException("Verified success must show restart guidance and start automatic close.");
+                form.CompletionTick();
+                if (form.completionSeconds != 2 || !form.status.Text.Contains("2 giây")) throw new InvalidOperationException("Success countdown did not advance.");
+                form.CompletionTick();
+                form.CompletionTick();
+                if (form.completionTimer.Enabled) throw new InvalidOperationException("Success timer did not stop after closing.");
+                Console.WriteLine("SUCCESS_AUTO_CLOSE=PASS");
             }
         }
 
@@ -586,20 +675,25 @@ namespace LanPower.ClientSetup
                     return InstallerEngine.Install(roomKey, installPath, "LanPowerStandaloneAgent", 17840, vpnNetworks, true,
                         delegate(string message) { BeginInvoke(new Action(delegate { status.Text = message; })); });
                 });
-                status.Text = "Đã cài agent thành công.";
-                MessageBox.Show(this, result.Message, result.UwfWarning ? "Đã cài agent — cần kiểm tra UWF" : "Cài đặt thành công", MessageBoxButtons.OK,
-                    result.UwfWarning ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
-                keyInput.Clear();
+                if (result.UwfWarning)
+                {
+                    status.ForeColor = Color.FromArgb(155, 95, 0);
+                    status.Text = "Client đã chạy. UWF chưa hoàn tất; xem chi tiết rồi chọn Cài / Cài đè để thử lại.";
+                    MessageBox.Show(this, result.Message, "Client đã cài — UWF chưa hoàn tất", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                else BeginCompletion(result);
             }
             catch (Exception error)
             {
+                status.ForeColor = Color.FromArgb(183, 45, 45);
                 status.Text = "Chưa cài hoàn tất. Xem thông báo lỗi để xử lý rồi thử lại.";
-                MessageBox.Show(this, InstallerEngine.HideKey(error.Message, roomKey), "Không cài được", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, InstallerEngine.HideKey(InstallerEngine.ExplainInstallError(error.Message), roomKey), "Không cài được", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
                 installing = false;
-                keyInput.Enabled = vpnInput.Enabled = toggleKey.Enabled = closeButton.Enabled = true;
+                keyInput.Enabled = vpnInput.Enabled = toggleKey.Enabled = !completed;
+                closeButton.Enabled = true;
                 progress.Visible = false;
                 UpdateInstallButton();
             }
