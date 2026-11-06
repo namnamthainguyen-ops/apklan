@@ -7,6 +7,7 @@ if ($InstallerExe -and $env:GITHUB_ACTIONS -ne 'true') {
 }
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'client\Install-Core.ps1')
+. (Join-Path $PSScriptRoot 'Cleanup-Paths.ps1')
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -168,13 +169,15 @@ finally {
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     if (Test-Path -LiteralPath $installPath) {
-        $resolved = [IO.Path]::GetFullPath($installPath)
-        if ($resolved -ne (Join-Path $env:TEMP "LanPowerSmoke-$testId")) { throw 'Unexpected cleanup path.' }
+        $resolved = Resolve-TestCleanupPath -ActualPath $installPath -ExpectedPath (Join-Path $env:TEMP "LanPowerSmoke-$testId")
+        Assert-TestCleanupNotReparse $resolved
         Remove-Item -LiteralPath $resolved -Recurse -Force
     }
     if ($packagedRoot -and (Test-Path -LiteralPath $packagedRoot)) {
-        if ([IO.Path]::GetFullPath($packagedRoot) -ne (Join-Path $env:TEMP "LanPowerPackaged-$testId")) { throw 'Unexpected packaged EXE cleanup path.' }
+        $resolvedPackaged = Resolve-TestCleanupPath -ActualPath $packagedRoot -ExpectedPath (Join-Path $env:TEMP "LanPowerPackaged-$testId")
+        Assert-TestCleanupNotReparse $resolvedPackaged
+        if (Test-Path -LiteralPath $packagedExe) { Assert-TestCleanupNotReparse $packagedExe }
         if (Test-Path -LiteralPath $packagedExe) { Remove-Item -LiteralPath $packagedExe -Force }
-        Remove-Item -LiteralPath $packagedRoot -Force
+        Remove-Item -LiteralPath $resolvedPackaged -Force
     }
 }

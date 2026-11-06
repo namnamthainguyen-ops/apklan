@@ -35,6 +35,16 @@ def swipe(up):
         SCREEN = tuple(map(int, dimensions.groups()))
     width, height = SCREEN
     top, bottom = int(height * 0.28), int(height * 0.82)
+    # Branding adds a fixed header/footer. Derive the gesture from the actual
+    # scroll container instead of starting over the status bar or toolbar.
+    for node in ui().iter("node"):
+        if node.attrib.get("class") == "android.widget.ScrollView":
+            left, bound_top, right, bound_bottom = map(int, re.findall(r"\d+", node.attrib["bounds"]))
+            if bound_bottom - bound_top > 80:
+                width = left + right
+                top = bound_top + int((bound_bottom - bound_top) * 0.15)
+                bottom = bound_bottom - int((bound_bottom - bound_top) * 0.15)
+                break
     adb("shell", "input", "swipe", str(width // 2), str(bottom if up else top),
         str(width // 2), str(top if up else bottom), "250")
 
@@ -337,6 +347,7 @@ wait_text("2 offline")
 assert visible_devices() == {"CI-A-01", "CI-A-02"}, "Offline computers disappeared from saved room"
 bulk("wake")
 refresh()
+scroll_top()
 wait_text("2 online")
 home()
 
