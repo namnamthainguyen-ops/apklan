@@ -58,5 +58,5 @@ adb uninstall com.lanpower.standalone
 adb install release/LanPowerStandalone-1.0.0-debug.apk
 adb shell am start -W -n com.lanpower.standalone/.MainActivity
 python3 tests/android-ui-smoke.py --prepare-key-only
-adb install -r release/RoomTN20-1.2.1.apk
+adb install -r release/RoomTN20-1.2.2.apk
 verify_app published-upgrade --existing-key

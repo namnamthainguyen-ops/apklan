@@ -7,7 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.2.1'
+$AgentVersion = '1.2.2'
+$AgentVersionCode = 7
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -282,7 +283,7 @@ try {
                     $capabilities = Get-UwfCapabilities
                     $stateSignature = Get-HmacBase64 $config.managementKey "state`n$($message.nonce)`n$($config.deviceId)`n$AgentVersion`n$uwfState`n$capabilities"
                     $update = Get-AgentUpdateStatus
-                    $updateSignature = Get-HmacBase64 $config.managementKey "update`n$($message.nonce)`n$($config.deviceId)`n5`n$($update.latestVersion)`n$($update.status)`n$($update.message)"
+                    $updateSignature = Get-HmacBase64 $config.managementKey "update`n$($message.nonce)`n$($config.deviceId)`n$AgentVersionCode`n$($update.latestVersion)`n$($update.status)`n$($update.message)"
                     Send-JsonDatagram -Client $udp -Remote $remote -Value ([ordered]@{
                         type = 'discovery'
                         requestNonce = $message.nonce
@@ -293,7 +294,7 @@ try {
                         uwf = $uwfState
                         capabilities = $capabilities
                         stateSignature = $stateSignature
-                        clientVersionCode = 6
+                        clientVersionCode = $AgentVersionCode
                         latestVersion = $update.latestVersion
                         updateStatus = $update.status
                         updateMessage = $update.message

@@ -1,4 +1,4 @@
-# Room TN20 1.2.1 — Quản lý phòng máy qua LAN/VPN
+# Room TN20 1.2.2 — Quản lý phòng máy qua LAN/VPN
 
 [![Verify Room TN20](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml/badge.svg)](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml)
 
@@ -10,12 +10,14 @@ Bản 1.2.0 bổ sung dò trực tiếp qua **WireGuard/OpenVPN**, WOL qua máy 
 
 Bản 1.2.1 sửa cài lại/cập nhật tệp trên Windows PowerShell 5.1. Bộ cài tự chuẩn bị UWF và giao diện Android chừa vùng thanh trạng thái/tai thỏ.
 
+Bản 1.2.2 đưa các thao tác cập nhật vào menu **⋮** ở góc trên bên phải, để phần quản lý phòng có thêm không gian.
+
 Mỗi phòng có danh sách máy riêng. Chạm một máy để xem tên, IP, MAC, lần phản hồi gần nhất, trạng thái đóng băng và các nút điều khiển. Chọn nhiều máy hoặc **Chọn tất cả** để thao tác cả phòng; kết quả được báo theo từng máy.
 
 ## Tải về
 
-- **[Tải bộ cài client Windows — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.2.1.exe)** — mở file, nhập key phòng 8 ký tự rồi bấm Cài đặt; tự chuẩn bị UWF.
-- **[Tải APK Room TN20 1.2.1](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.2.1.apk)** — Android 8.0 trở lên, bản debug để thử nghiệm.
+- **[Tải bộ cài client Windows — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.2.2.exe)** — mở file, nhập key phòng 8 ký tự rồi bấm Cài đặt; tự chuẩn bị UWF.
+- **[Tải APK Room TN20 1.2.2](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.2.2.apk)** — Android 8.0 trở lên, bản debug để thử nghiệm.
 - [Tải toàn bộ mã nguồn và bộ cài Windows ZIP](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip).
 - [Xem script cài Windows online](https://github.com/namnamthainguyen-ops/apklan/blob/main/install-online.ps1).
 - [Xem kết quả kiểm thử trên GitHub](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml).
@@ -32,14 +34,14 @@ Tự chọn key gồm đúng **8 ký tự ASCII in được**, phân biệt hoa/
 
 ### Bước 2 — Cài một file EXE trên từng máy Windows
 
-1. [Tải `RoomTN20-ClientSetup-1.2.1.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.2.1.exe), có thể chép cùng file này sang tất cả máy client.
+1. [Tải `RoomTN20-ClientSetup-1.2.2.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.2.2.exe), có thể chép cùng file này sang tất cả máy client.
 2. Mở file với quyền Administrator, nhập key của phòng rồi bấm **Cài đặt**.
 3. Khi nhận thông báo thành công, đóng bộ cài. Agent tự chạy cùng Windows; trên APK tạo phòng bằng đúng key đó để nhận máy.
 
 EXE tự cài/chuẩn bị UWF khi hệ điều hành hỗ trợ, không cần chạy script thủ công. Bộ cài báo riêng nếu cần restart hoặc không thể chuẩn bị feature. Nếu UWF chưa sẵn sàng, phần điều khiển bật/tắt vẫn được cài. Bộ cài không tự khởi động lại máy.
 
 ```text
-EXE SHA-256: E41AE98EA7314ED0F9CA266E71C7FD62551DB1F8EDD839939D1CB629293D2C63
+EXE SHA-256: 61CB0C66C5EB21659E3A6382F2008FDC54B8F4A1A72CD3CE5B986834C7235103
 ```
 
 Bản EXE hiện chưa ký Authenticode; Windows có thể hiển thị nhà xuất bản chưa xác định. Thương hiệu hiển thị trong ứng dụng là **Room TN20 — Công ty TNHH TN20**, website **20.com.vn**.
@@ -54,7 +56,7 @@ $ErrorActionPreference = 'Stop'
 $key = Read-Host 'Nhap key phong gom 8 ky tu, khong khoang trang'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/install-online.ps1'
-$expected = '91CD23DB286710C15618DE893127884B507C3645D0E2505CBFC52BE2CDFFF6FA'
+$expected = '6FDAE5244BC3805081F6871E9D37DA18CE683F7D49F21AB37FDDC9D60E7B8456'
 $file = Join-Path $env:TEMP ('lanpower-install-' + [Guid]::NewGuid().ToString('N') + '.ps1')
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
 if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $expected) { throw 'Installer checksum mismatch.' }
@@ -74,7 +76,7 @@ Bộ cài tự chuẩn bị Windows Feature UWF trên Windows IoT Enterprise, kh
 
 ### Bước 3 — Cài APK và quản lý máy
 
-1. [Tải APK Room TN20 1.2.1 trên điện thoại](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.2.1.apk), cho phép trình duyệt hoặc trình quản lý tệp cài ứng dụng khi Android yêu cầu.
+1. [Tải APK Room TN20 1.2.2 trên điện thoại](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.2.2.apk), cho phép trình duyệt hoặc trình quản lý tệp cài ứng dụng khi Android yêu cầu.
 2. Mở **Room TN20**, thêm phòng, đặt tên phòng và nhập đúng key 8 ký tự đã cài trên các máy.
 3. Mở phòng, chọn **Quét mạng LAN**. Máy dùng đúng key sẽ được đưa vào danh sách phòng; app lưu lại tên, IP và MAC để tiếp tục hiển thị khi máy offline.
 4. Chạm một máy để xem chi tiết và dùng **Bật**, **Tắt**, **Restart**, **Đóng băng C:** hoặc **Mở đóng băng C:**.
@@ -115,8 +117,10 @@ Client và APK hiển thị phiên bản đang dùng, phiên bản mới và tì
 
 - **Windows:** task cập nhật kiểm tra định kỳ và lúc khởi động, giữ key, deviceId và cấu hình VPN. Khi C đang đóng băng, cập nhật chuyển sang trạng thái chờ; phần mềm không tự mở đóng băng hoặc reboot. Mở bảo vệ C và restart khi bạn sẵn sàng bảo trì, sau đó cập nhật mới được ghi bền vững.
 - **Android:** tự kiểm tra và tải APK đã xác minh. Android thông thường vẫn có thể yêu cầu cấp quyền cài từ nguồn này và xác nhận cài đặt; app dùng bước cài đặt chính thức, không vượt quyền hệ thống. [Quy tắc xác nhận của Android](https://developer.android.com/reference/android/content/pm/PackageInstaller.SessionParams#setRequireUserAction(int)).
+- Trên APK, mở menu **⋮** ở góc trên bên phải rồi chọn **Kiểm tra cập nhật**, **Cài bản mới** hoặc **Trạng thái cập nhật**. Mục cài đặt tiếp tục dùng xác nhận của Android khi hệ thống yêu cầu.
 - Kiểm tra đúng package/chứng thư APK, từ chối chữ ký sai, checksum sai, URL ngoài nguồn cho phép và phiên bản thấp hơn. Có Internet mới kiểm tra được bản phát hành trên GitHub; chức năng quản lý LAN/VPN vẫn dùng dữ liệu cục bộ khi không có Internet.
-- Bản 1.1.x chưa có bộ tự cập nhật: cần cài 1.2.1 một lần trên điện thoại và máy client để bắt đầu nhận các bản mới tiếp theo.
+- Bản 1.1.x chưa có bộ tự cập nhật: cần cài 1.2.2 một lần trên điện thoại và máy client để bắt đầu nhận các bản mới tiếp theo.
+- Client Windows 1.2.0 thử nghiệm cần chạy lại EXE 1.2.2 để sửa lỗi thay thế tệp; từ client 1.2.1 trở lên có thể nhận cập nhật tự động khi C không đang được bảo vệ.
 
 Khóa ký riêng của nhà phát hành không nằm trong repository hoặc bộ cài. Nếu phát hành phiên bản mới, sử dụng `updates/Publish-UpdateManifest.ps1` với khóa riêng được bảo vệ; không đặt khóa riêng lên GitHub hoặc trong tệp ZIP mã nguồn.
 
@@ -163,10 +167,10 @@ Script sẽ:
 
 Cài APK lên điện thoại Android 8.0 trở lên. Mở Room TN20, thêm phòng bằng tên và key 8 ký tự rồi chọn `Quét LAN`.
 
-APK debug trong repository: `release/RoomTN20-1.2.1.apk`. Cùng chứng thư với bản 1.0.x/1.1.x để cài nâng cấp; bản cũ được giữ lại phục vụ kiểm thử nâng cấp. Giao diện dùng vùng an toàn status bar/tai thỏ và thanh điều hướng, không đè lên giờ/thông báo của điện thoại.
+APK debug trong repository: `release/RoomTN20-1.2.2.apk`. Cùng chứng thư với bản 1.0.x/1.1.x để cài nâng cấp; bản cũ được giữ lại phục vụ kiểm thử nâng cấp. Giao diện dùng vùng an toàn status bar/tai thỏ và thanh điều hướng, không đè lên giờ/thông báo của điện thoại.
 
 ```text
-APK SHA-256: 529C4F6669036AEC395EDB9F7E1E8400DE74BC900E196D467F7EF339C36EE532
+APK SHA-256: A6D6A4314D80D5ABD29B262BE36FD96DD37502849FBAA75CDD92DFE457A08709
 ```
 
 Để tự tìm bằng broadcast, điện thoại và t540 cần cùng broadcast domain, Wi-Fi không bật AP/client isolation. Nếu khác VLAN hoặc kết nối VPN, cấu hình IP/dải mạng trực tiếp trong mục **Mạng LAN/VPN** của phòng và cho phép định tuyến/firewall tương ứng.

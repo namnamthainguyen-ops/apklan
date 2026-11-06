@@ -2,8 +2,8 @@
 param(
     [Parameter(Mandatory)][string]$PrivateKeyPath,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$SourceCommit,
-    [string]$Version = '1.2.1',
-    [int]$VersionCode = 6,
+    [string]$Version = '1.2.2',
+    [int]$VersionCode = 7,
     [string]$ReleaseNotes = 'Ho tro LAN/VPN WireGuard/OpenVPN va cap nhat co chu ky.'
 )
 $ErrorActionPreference = 'Stop'

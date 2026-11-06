@@ -8,7 +8,7 @@ Build on Windows with Windows PowerShell 5.1 and .NET Framework 4.7.2 or newer:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\client-installer\Build.ps1
 ```
 
-The output is one file: `release/RoomTN20-ClientSetup-1.1.1.exe`. It embeds the exact agent and installer core from `client/`, plus their SHA-256 values. No sidecar DLL or payload download is needed. The executable requests Administrator permission and is unsigned. The company metadata is product branding, not an Authenticode publisher signature.
+The output is one file: `release/RoomTN20-ClientSetup-1.2.2.exe`. It embeds the exact agent, installer core, signed updater and public trust key from `client/`, plus their SHA-256 values. No sidecar DLL or payload download is needed. The executable requests Administrator permission and is unsigned. The company metadata is product branding, not an Authenticode publisher signature.
 
 Normal launch shows the installer. Enter the same eight-character room key used by the Android app. Printable ASCII symbols are accepted; spaces and non-ASCII characters are rejected. The key is passed to an in-process PowerShell runspace through bound parameters, never through command-line arguments or installer logs. Only the derived management key is saved by the agent.
 
@@ -23,7 +23,7 @@ Safe verification modes (require an elevated process because the same EXE contai
 For disposable Windows CI runners only:
 
 ```text
-RoomTN20-ClientSetup-1.1.1.exe --ci-install --install-path <dedicated-directory> --task-name <unique-task> --port <1024..65535>
+RoomTN20-ClientSetup-1.2.2.exe --ci-install --install-path <dedicated-directory> --task-name <unique-task> --port <1024..65535>
 ```
 
 This mode reads exactly one room-key line from standard input. It installs the embedded agent using the supplied dedicated path/task/port and never prepares UWF or restarts the machine. The existing installer path guards, ACL restrictions and stable device ID behavior remain in effect.

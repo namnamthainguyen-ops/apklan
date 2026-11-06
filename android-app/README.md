@@ -1,6 +1,6 @@
 # Room TN20 Android
 
-**Room TN20 1.2.1**, thương hiệu **TN20** của **Công ty TNHH TN20**, quản lý nhiều phòng trực tiếp trong LAN hoặc VPN có định tuyến tới máy con, không dùng API hay máy chủ trung tâm. Website: [20.com.vn](https://20.com.vn). Link trong app chỉ mở khi người dùng chạm. Yêu cầu Android 8.0 (API 26) trở lên.
+**Room TN20 1.2.2**, thương hiệu **TN20** của **Công ty TNHH TN20**, quản lý nhiều phòng trực tiếp trong LAN hoặc VPN có định tuyến tới máy con, không dùng API hay máy chủ trung tâm. Website: [20.com.vn](https://20.com.vn). Link trong app chỉ mở khi người dùng chạm. Yêu cầu Android 8.0 (API 26) trở lên.
 
 Tên hiển thị và giao diện nhận thương hiệu mới; applicationId `com.lanpower.standalone`, vùng lưu dữ liệu và khóa mã hóa vẫn giữ nguyên để nâng cấp mà không mất phòng/máy đã lưu. Bản APK nâng cấp sử dụng cùng chứng thư ký với các bản trước.
 
@@ -17,6 +17,7 @@ Tên hiển thị và giao diện nhận thương hiệu mới; applicationId `c
 - `freeze`/`unfreeze` thay đổi bảo vệ C: cho lần khởi động tiếp theo, không tự restart. Trạng thái Current/Next và khả năng UWF chỉ được tin khi `stateSignature` hợp lệ. Agent cũ vẫn điều khiển nguồn được; bộ cài client mới tự chuẩn bị UWF, sau đó khởi động lại nếu được yêu cầu rồi quét lại. Chi tiết ACK chỉ được hiển thị là kết quả xác thực khi có `detailSignature` đúng.
 - Khi nâng cấp, Management Key Base64 và máy đã lưu từ bản cũ được chuyển sang **Phòng cũ**; dữ liệu nguồn cũ vẫn được giữ. Khóa cũ tiếp tục được mã hóa, không bắt buộc cài lại agent chỉ để nâng cấp app.
 - App tự kiểm tra manifest `updates/stable.json` khi mở và tối đa mỗi 6 giờ khi đang hiển thị, chạy riêng với quét LAN. Manifest RS256 được kiểm tra bằng khóa RSA3072 nhúng sẵn; APK tự tải chỉ từ đường HTTPS đúng repo, chặn redirect ra ngoài và giới hạn dung lượng. Trước khi cài, app kiểm tra SHA-256, package, versionCode tăng và chứng thư ký trùng ứng dụng hiện tại. Manifest cũ hơn phiên bản đã tin cậy bị từ chối.
+- Các thao tác cập nhật nằm trong menu **⋮** ở góc trên bên phải: **Kiểm tra cập nhật**, **Cài bản mới** và **Trạng thái cập nhật**.
 - Sau khi tải/xác minh, Android 12+ có thể cho tự cập nhật bằng PackageInstaller nếu nguồn cài đã được người dùng cho phép và các điều kiện hệ thống đáp ứng; app yêu cầu không cần tương tác nhưng tuân theo kết quả của Android. Nếu Android yêu cầu xác nhận, trạng thái hiển thị tại mục cập nhật và nút **Cài bản mới** mở xác nhận khi người dùng chọn; app không mở hộp thoại đè thao tác phòng. Android 8–11 dùng xác nhận cài hệ thống. Quyền cài từ nguồn này được cấp trong Settings sau khi người dùng bấm nút, không tự bật hay bỏ qua quyền.
 - Chi tiết máy hiển thị version/code và thông tin cập nhật Windows chỉ khi `updateSignature` hợp lệ; chọn Quét LAN để đọc lại. Thông tin ký HMAC không thay thế kiểm tra chữ ký RSA gói cập nhật của agent.
 

@@ -12,9 +12,9 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $AgentUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/StandaloneAgent.ps1'
-$AgentSha256 = '26054B7E0B3A684D43BF33FBC225FC88F5459C094293E7125EAAA13791C76CAF'
+$AgentSha256 = '57E9A869F2F5976DA314BE79B673E8E1DFE1A82B0D169682FBB6057D6FDD81C1'
 $CoreUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Install-Core.ps1'
-$CoreSha256 = '4C3449EF636475E7B98F5B6EBC1752A0F9D67DE05374E4B11DF93C3458BCFEF4'
+$CoreSha256 = '0DACAA51D4F8FFB4BE7C9A55D9E179A0F170571157CC2E64E8525491705E093E'
 $UpdaterUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Update-Agent.ps1'
 $UpdaterSha256 = '9E0B25020138259E77333FE048E85B899AB895F85284CCE536E9E716656701D1'
 $PublicKeyUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Update-PublicKey.xml'

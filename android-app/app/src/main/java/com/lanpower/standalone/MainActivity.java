@@ -19,6 +19,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.Menu;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
@@ -28,6 +29,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -60,8 +62,10 @@ public final class MainActivity extends Activity {
     private RoomRepository repository;
     private LanTransport transport;
     private AppUpdater updater;
-    private TextView updateStatus;
-    private Button installUpdate;
+    private Button updateMenuButton;
+    private PopupMenu updateMenu;
+    private String updateStatusMessage;
+    private boolean updateReady;
     private boolean updatesDisabled;
     private LinearLayout content;
     private TextView title;
@@ -101,10 +105,7 @@ public final class MainActivity extends Activity {
         updatesDisabled = BuildConfig.DEBUG && emulator && (ciFixture || getIntent().getBooleanExtra("disable_updates", false));
         transport = new LanTransport(ciFixture);
         buildUi();
-        updater = new AppUpdater(this, (message, available) -> postResult(() -> {
-            updateStatus.setText(message);
-            installUpdate.setEnabled(available);
-        }), updatesDisabled);
+        updater = new AppUpdater(this, (message, available) -> postResult(() -> setUpdateStatus(message, available)), updatesDisabled);
         try {
             for (RoomModel room : repository.load()) rooms.put(room.id, room);
         } catch (Exception error) {
@@ -144,6 +145,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         destroyed = true;
         handler.removeCallbacksAndMessages(null);
+        if (updateMenu != null) updateMenu.dismiss();
         transport.close();
         updater.close();
         executor.shutdownNow();
@@ -172,6 +174,14 @@ public final class MainActivity extends Activity {
         brand.addView(mark);
         brand.addView(text(getString(R.string.app_name), 11, Color.rgb(205, 224, 240)));
         header.addView(brand);
+        updateMenuButton = button("⋮", NAVY, R.id.update_menu);
+        updateMenuButton.setPadding(0, 0, 0, 0);
+        updateMenuButton.setTextSize(26);
+        updateMenuButton.setContentDescription("Menu cập nhật");
+        updateMenuButton.setOnClickListener(view -> showUpdatesMenu());
+        LinearLayout.LayoutParams menuLayout = new LinearLayout.LayoutParams(dp(48), dp(48));
+        menuLayout.setMargins(dp(8), 0, 0, 0);
+        header.addView(updateMenuButton, menuLayout);
         root.addView(header, matchWrap());
 
         LinearLayout navigation = row();
@@ -200,22 +210,7 @@ public final class MainActivity extends Activity {
         content.setPadding(dp(12), dp(6), dp(12), dp(24));
         scroll.addView(content, matchWrap());
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-        LinearLayout updates = column();
-        updates.setPadding(dp(14), dp(5), dp(14), 0);
-        updateStatus = text("Room TN20 " + BuildConfig.VERSION_NAME + (updatesDisabled ? " • Kiểm thử: tạm tắt cập nhật" : " • Đang chờ kiểm tra bản mới"), 11, Color.DKGRAY);
-        updateStatus.setId(R.id.update_status);
-        updates.addView(updateStatus, matchWrap());
-        LinearLayout updateActions = row();
-        Button checkUpdate = button("Kiểm tra cập nhật", BLUE, R.id.update_check);
-        checkUpdate.setEnabled(!updatesDisabled);
-        checkUpdate.setOnClickListener(view -> updater.check(true));
-        installUpdate = button("Cài bản mới", GREEN, R.id.update_install);
-        installUpdate.setEnabled(false);
-        installUpdate.setOnClickListener(view -> installNewVersion());
-        updateActions.addView(checkUpdate, weighted());
-        updateActions.addView(installUpdate, weighted());
-        updates.addView(updateActions, matchWrap());
-        root.addView(updates, matchWrap());
+        updateStatusMessage = "Room TN20 " + BuildConfig.VERSION_NAME + (updatesDisabled ? " • Kiểm thử: tạm tắt cập nhật" : " • Đang chờ kiểm tra bản mới");
         LinearLayout footer = row();
         footer.setPadding(dp(14), dp(7), dp(14), dp(7));
         footer.setBackgroundColor(Color.WHITE);
@@ -640,12 +635,60 @@ public final class MainActivity extends Activity {
         showPrompt(dialog);
     }
 
+    private void setUpdateStatus(String message, boolean available) {
+        updateStatusMessage = message;
+        updateReady = available;
+        updateMenuButton.setText(available ? "⋮ •" : "⋮");
+        updateMenuButton.setTextSize(available ? 21 : 26);
+        updateMenuButton.setContentDescription(available ? "Menu cập nhật • Có bản mới" : "Menu cập nhật");
+        if (updateMenu != null) updateMenu.getMenu().findItem(R.id.update_install).setEnabled(available && !busy);
+    }
+
+    private void showUpdatesMenu() {
+        if (updateMenu != null || destroyed) return;
+        PopupMenu popup = new PopupMenu(this, updateMenuButton, Gravity.END);
+        popup.getMenu().add(Menu.NONE, R.id.update_status, 0, "Room TN20 " + BuildConfig.VERSION_NAME).setEnabled(false);
+        popup.getMenu().add(Menu.NONE, R.id.update_check, 1, "Kiểm tra cập nhật")
+                .setEnabled(!updatesDisabled).setContentDescription("update_check");
+        popup.getMenu().add(Menu.NONE, R.id.update_install, 2, "Cài bản mới")
+                .setEnabled(updateReady && !busy && !updatesDisabled).setContentDescription("update_install");
+        popup.getMenu().add(Menu.NONE, R.id.update_state, 3, "Trạng thái cập nhật").setContentDescription("update_state");
+        popup.setOnMenuItemClickListener(item -> {
+            if (item.getItemId() == R.id.update_check) {
+                updater.check(true);
+                Toast.makeText(this, "Đang kiểm tra cập nhật. Xem kết quả trong menu → Trạng thái cập nhật.", Toast.LENGTH_LONG).show();
+                return true;
+            }
+            if (item.getItemId() == R.id.update_install) {
+                // A menu item is invoked before PopupMenu's dismiss callback.
+                // Defer installation until that callback releases the prompt guard.
+                handler.post(this::installNewVersion);
+                return true;
+            }
+            if (item.getItemId() == R.id.update_state) {
+                showPrompt(new AlertDialog.Builder(this).setTitle("Cập nhật Room TN20")
+                        .setMessage(updateStatusMessage).setPositiveButton("Đóng", null).create());
+                return true;
+            }
+            return false;
+        });
+        popup.setOnDismissListener(ignored -> {
+            updateMenu = null;
+            openPrompts = Math.max(0, openPrompts - 1);
+        });
+        updateMenu = popup;
+        openPrompts++;
+        try { popup.show(); }
+        catch (RuntimeException error) { updateMenu = null; openPrompts--; throw error; }
+    }
+
     private void installNewVersion() {
         if (updatesDisabled || busy || openPrompts > 0) return;
         try {
             updater.validateReady();
             if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
-                updateStatus.setText("Bật quyền cài ứng dụng từ nguồn này trong Android, quay lại rồi chọn Cài bản mới.");
+                setUpdateStatus("Bật quyền cài ứng dụng từ nguồn này trong Android, quay lại rồi chọn Cài bản mới trong menu góc trên bên phải.", true);
+                Toast.makeText(this, updateStatusMessage, Toast.LENGTH_LONG).show();
                 startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
                 return;
             }
@@ -659,8 +702,11 @@ public final class MainActivity extends Activity {
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             install.setClipData(ClipData.newRawUri("Room TN20 update", UpdateApkProvider.APK_URI));
             startActivity(install);
-            updateStatus.setText("Android đang yêu cầu xác nhận cài đặt. Dữ liệu phòng được giữ khi cập nhật thành công.");
-        } catch (Exception error) { updateStatus.setText("Chưa mở được cài đặt: " + readable(error)); }
+            setUpdateStatus("Android đang yêu cầu xác nhận cài đặt. Dữ liệu phòng được giữ khi cập nhật thành công.", true);
+        } catch (Exception error) {
+            setUpdateStatus("Chưa mở được cài đặt: " + readable(error), updateReady);
+            Toast.makeText(this, updateStatusMessage, Toast.LENGTH_LONG).show();
+        }
     }
 
     private String roomCounts(RoomModel room) {

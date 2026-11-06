@@ -121,6 +121,69 @@ def assert_branding():
     print("ANDROID_BRANDING=PASS (Room TN20, TN20, company and website)")
 
 
+def assert_update_menu():
+    labels = {"update_check": "Kiểm tra cập nhật", "update_install": "Cài bản mới"}
+
+    def menu_items(tree):
+        found = {}
+
+        def visit(node, ancestors):
+            attrs = node.attrib
+            for name in ["update_check", "update_install", "update_state"]:
+                if by_id(name)(attrs) or attrs.get("content-desc") == name:
+                    # Framework PopupMenu rows do not always export MenuItem IDs
+                    # as view resource IDs, so the matching content description
+                    # keeps the ID contract observable on API 26 and API 35.
+                    descendants = list(node.iter("node"))
+                    texts = [item.attrib.get("text", "") for item in descendants]
+                    enabled = all(item.attrib.get("enabled", "true") == "true"
+                                  for item in [*ancestors, node])
+                    found[name] = {"texts": texts, "enabled": enabled}
+            for child in node:
+                visit(child, [*ancestors, node])
+
+        visit(tree, [])
+        return found
+
+    def disabled_version_row(tree):
+        def visit(node, ancestors):
+            if re.match(r"^Room TN20 \d", node.attrib.get("text", "")):
+                return any(item.attrib.get("enabled", "true") == "false"
+                           for item in [*ancestors, node])
+            return any(visit(child, [*ancestors, node]) for child in node)
+        return visit(tree, [])
+
+    tree = ui()
+    assert not menu_items(tree), "Update actions must stay inside the right-side menu"
+    tap(by_id("update_menu"), lambda snapshot: len(menu_items(snapshot)) == 3)
+    opened = menu_items(ui())
+    for name, label in labels.items():
+        assert name in opened, f"Missing update-menu identity: {name}"
+        assert label in opened[name]["texts"], f"Wrong update-menu label for {name}"
+        assert not opened[name]["enabled"], f"CI fixture must prevent {label}"
+    assert "update_state" in opened, "Update menu does not expose its status action"
+    assert "Trạng thái cập nhật" in opened["update_state"]["texts"], "Wrong update-status action label"
+    assert opened["update_state"]["enabled"], "Update-status action must remain available in CI"
+    assert disabled_version_row(ui()), "Current-version row must be visible and informational only"
+    with open("emulator-evidence/update-menu.png", "wb") as screenshot:
+        subprocess.run(["adb", "exec-out", "screencap", "-p"], stdout=screenshot, timeout=30, check=True)
+    tap(lambda node: by_id("update_state")(node) or node.get("content-desc") == "update_state",
+        lambda snapshot: any(node.attrib.get("text") == "Cập nhật Room TN20" for node in snapshot.iter("node")))
+    dialog = wait_text("Cập nhật Room TN20")
+    assert any("Kiểm thử: tạm tắt cập nhật" in node.attrib.get("text", "") for node in dialog.iter("node")), \
+        "Update-status dialog did not display the CI update state"
+    with open("emulator-evidence/update-status.png", "wb") as screenshot:
+        subprocess.run(["adb", "exec-out", "screencap", "-p"], stdout=screenshot, timeout=30, check=True)
+    tap_text("Đóng", lambda snapshot: not any(node.attrib.get("text") == "Cập nhật Room TN20"
+                                              for node in snapshot.iter("node")))
+    assert not menu_items(ui()), "Update-status dialog did not return to the main view"
+    tap(by_id("update_menu"), lambda snapshot: len(menu_items(snapshot)) == 3)
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    wait_for(lambda snapshot: not menu_items(snapshot), "Update menu remained open after BACK")
+    assert has_id(ui(), "update_menu"), "Closing the update menu lost its toolbar control"
+    print("ANDROID_UPDATE_MENU=PASS (right-side menu, disabled CI install/check, version row, working status dialog, BACK dismissal)")
+
+
 def tap_text(text, transition=None):
     tap(lambda node: node.get("text", "").casefold() == text.casefold(), transition)
 
@@ -352,6 +415,7 @@ if "--existing-key" not in sys.argv:
     control("/reset", {})
 wait_text("Các phòng")
 assert_branding()
+assert_update_menu()
 if "--existing-key" in sys.argv:
     open_room("Phòng cũ")
     assert visible_devices() == {"CI-L-04"}, "Saved legacy PC was not migrated while offline"

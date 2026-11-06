@@ -267,8 +267,8 @@ function Invoke-LanPowerInstall {
         vpnNetworks = @($VpnNetworks)
         agentTaskName = $TaskName
         updateTaskName = $updateTaskName
-        version = '1.2.1'
-        versionCode = 6
+        version = '1.2.2'
+        versionCode = 7
         installedAt = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json
     Set-LanPowerAtomicFile $configPath ([Text.Encoding]::ASCII.GetBytes($newConfig))

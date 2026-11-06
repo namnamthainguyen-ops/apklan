@@ -135,7 +135,7 @@ try {
     Invoke-OfflineTestInstall
     $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
     Assert-True ($config.managementKey -ceq $key) 'Installer stores the derived room key.'
-    Assert-True ([int]$config.versionCode -eq 6 -and $config.version -eq '1.2.1') 'Installer records the signed-update client version.'
+    Assert-True ([int]$config.versionCode -eq 7 -and $config.version -eq '1.2.2') 'Installer records the signed-update client version.'
     Assert-True ($config.updateTaskName -eq $updateTaskName -and $config.agentTaskName -eq $taskName) 'Installer records both dedicated task names.'
     Assert-True (@($config.vpnNetworks).Count -eq 0) 'Default installation has no implicit remote VPN trust.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw) -notmatch $roomKey) 'Plain room key is not persisted.'

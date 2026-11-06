@@ -14,7 +14,7 @@ Manifest chỉ trỏ tới các tệp đã có trong một commit GitHub bất b
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\updates\Publish-UpdateManifest.ps1 `
     -PrivateKeyPath 'DUONG-DAN-NGOAI-REPOSITORY\roomtn20-update-private.xml' `
-    -SourceCommit 'SHA-COMMIT-40-KY-TU' -Version '1.2.1' -VersionCode 6
+    -SourceCommit 'SHA-COMMIT-40-KY-TU' -Version '1.2.2' -VersionCode 7
 ```
 
 5. Kiểm tra `stable.json` bằng khóa công khai, commit riêng manifest và push. Bản cập nhật tự động chỉ được quảng bá ở bước này.
