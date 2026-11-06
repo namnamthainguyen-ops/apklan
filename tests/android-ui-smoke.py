@@ -123,10 +123,14 @@ def type_field(name, value, secret=False):
     raise AssertionError(f"ADB text entry did not stabilize for {name}")
 
 
-def last_scans():
+def saved_rooms():
     xml = adb("shell", "run-as", PACKAGE, "cat", "shared_prefs/lanpower_rooms_v2.xml")
     values = ET.fromstring(xml).find("string[@name='rooms']")
-    return {room["id"]: room.get("lastScan", 0) for room in json.loads(values.text or "[]")}
+    return json.loads(values.text or "[]")
+
+
+def last_scans():
+    return {room["id"]: room.get("lastScan", 0) for room in saved_rooms()}
 
 
 def control(path="/state", payload=None):
@@ -279,9 +283,14 @@ if "--existing-key" in sys.argv:
 
 add_room(ROOM_A, "RoomA123")
 add_room(ROOM_B, "RoomB456", hold_modal=True)
+before_duplicate = {room["id"]: room["name"] for room in saved_rooms()}
 submit_room("CI Duplicate", "RoomA123")
-wait_text("Key này đã thuộc phòng")
+wait_idle()
+after_duplicate = {room["id"]: room["name"] for room in saved_rooms()}
+assert after_duplicate == before_duplicate, "Duplicate key changed the persisted room identities or names"
+assert "CI Duplicate" not in after_duplicate.values(), "Duplicate key was persisted as another room"
 assert not any(node.attrib.get("content-desc") == "room:CI Duplicate" for node in ui().iter("node")), "Duplicate key created a second room"
+print("ANDROID_DUPLICATE_ROOM_REJECTED=PASS (persisted room IDs and names unchanged)")
 open_room(ROOM_A)
 refresh()
 assert visible_devices() == {"CI-A-01", "CI-A-02"}, "Room A did not isolate its discovered machines"
