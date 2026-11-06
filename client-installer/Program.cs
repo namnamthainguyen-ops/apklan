@@ -22,8 +22,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("TN20 - Trình cài client quản lý máy tính trong mạng LAN")]
 [assembly: AssemblyCompany("Công ty TNHH TN20")]
 [assembly: AssemblyProduct("Room TN20")]
-[assembly: AssemblyVersion("1.2.3.0")]
-[assembly: AssemblyFileVersion("1.2.3.0")]
+[assembly: AssemblyVersion("1.2.4.0")]
+[assembly: AssemblyFileVersion("1.2.4.0")]
 [assembly: TargetFramework(".NETFramework,Version=v4.7.2", FrameworkDisplayName = ".NET Framework 4.7.2")]
 
 namespace LanPower.ClientSetup
@@ -92,6 +92,7 @@ namespace LanPower.ClientSetup
         internal string Message;
         internal bool UwfWarning;
         internal bool RestartRequired;
+        internal bool UwfNotSupported;
     }
 
     internal sealed class SetupUpdate
@@ -423,9 +424,12 @@ namespace LanPower.ClientSetup
                                 if (features.Count != 1 || features[0].Properties["Status"] == null || features[0].Properties["RestartRequired"] == null)
                                     throw new InvalidOperationException("Không xác minh được kết quả chuẩn bị UWF.");
                                 string state = Convert.ToString(features[0].Properties["FeatureState"].Value);
+                                result.UwfNotSupported = Convert.ToString(features[0].Properties["Status"].Value) == "not-supported";
                                 result.RestartRequired = Convert.ToBoolean(features[0].Properties["RestartRequired"].Value);
-                                result.UwfWarning = state != "Enabled" && state != "EnablePending";
-                                result.Message += result.UwfWarning
+                                result.UwfWarning = !result.UwfNotSupported && state != "Enabled" && state != "EnablePending";
+                                result.Message += result.UwfNotSupported
+                                    ? "\n\nWindows này không hỗ trợ UWF. Client quản lý nguồn đã được cài; các nút đóng băng sẽ không dùng trên máy này."
+                                    : result.UwfWarning
                                     ? "\n\nUWF đang chờ hoàn tất thay đổi trước đó. Khởi động lại Windows rồi chạy lại bộ cài."
                                     : result.RestartRequired ? "\n\nĐã chuẩn bị UWF. Cần khởi động lại Windows trước khi dùng đóng băng C:."
                                     : "\n\nUWF đã sẵn sàng. Chọn đóng băng C: trong app khi cần.";
@@ -587,7 +591,8 @@ namespace LanPower.ClientSetup
             if (result.UwfWarning) throw new InvalidOperationException("Không tự đóng bộ cài khi UWF chưa hoàn tất.");
             completed = true;
             completionSeconds = 3;
-            completionMessage = result.RestartRequired ? "Cài đặt thành công. UWF cần khởi động lại Windows." : "Cài đặt thành công. Client đã chạy và nhận đúng khóa phòng.";
+            completionMessage = result.UwfNotSupported ? "Cài đặt client thành công. Windows này không hỗ trợ UWF."
+                : result.RestartRequired ? "Cài đặt thành công. UWF cần khởi động lại Windows." : "Cài đặt thành công. Client đã chạy và nhận đúng khóa phòng.";
             status.ForeColor = Color.FromArgb(32, 125, 70);
             status.Text = completionMessage + "\nBộ cài tự đóng sau 3 giây.";
             keyInput.Clear();
@@ -648,6 +653,15 @@ namespace LanPower.ClientSetup
                 form.CompletionTick();
                 if (form.completionTimer.Enabled) throw new InvalidOperationException("Success timer did not stop after closing.");
                 Console.WriteLine("SUCCESS_AUTO_CLOSE=PASS");
+            }
+            using (SetupForm serverForm = new SetupForm(true))
+            {
+                serverForm.BeginCompletion(new InstallResult { UwfNotSupported = true });
+                if (!serverForm.completed || !serverForm.status.Text.Contains("không hỗ trợ UWF") || !serverForm.completionTimer.Enabled)
+                    throw new InvalidOperationException("Unsupported UWF on Server/Home/Pro must complete power-client setup with an explicit notice.");
+                serverForm.CompletionTick(); serverForm.CompletionTick(); serverForm.CompletionTick();
+                if (serverForm.completionTimer.Enabled) throw new InvalidOperationException("Server power-client completion did not auto-close.");
+                Console.WriteLine("SERVER_POWER_ONLY_SUCCESS=PASS");
             }
         }
 

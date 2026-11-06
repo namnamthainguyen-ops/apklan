@@ -150,7 +150,9 @@ function Initialize-LanPowerUwfFeature {
         $logPath = Join-Path $safeRoot 'uwf-preparation.log'
     }
     if ($edition -match '^(Core|Professional|Server)') {
-        throw "UWF_UNSUPPORTED_EDITION: $edition. UWF requires Windows Enterprise, Education or IoT Enterprise. The LAN power agent remains usable. Log: $logPath"
+        return [pscustomobject]@{ Status = 'not-supported'; RestartRequired = $false;
+            Message = "UWF is not supported on Windows edition $edition. The LAN power client is available; no UWF installation was attempted.";
+            Edition = $edition; FeatureState = 'NotSupported'; LogPath = $logPath }
     }
     $feature = Get-LanPowerUwfFeatureInfo -LogPath $logPath
     if ($feature.ExitCode -ne 0) { throw ('UWF_FEATURE_QUERY_FAILED: ' + (Get-LanPowerDismFailure $feature.ExitCode $edition $logPath)) }
@@ -334,7 +336,7 @@ function Test-LanPowerHandshakeSignature {
 
 function Wait-LanPowerInstalledAgent {
     param([string]$InstallPath, [string]$RoomKey, [int]$Port = 17840,
-        [string]$ExpectedVersion = '1.2.3', [int]$ExpectedVersionCode = 8,
+        [string]$ExpectedVersion = '1.2.4', [int]$ExpectedVersionCode = 9,
         [ValidateRange(1, 60)][int]$TimeoutSeconds = 20, [string]$ManagementKey)
     if ($RoomKey) { $ManagementKey = ConvertTo-LanPowerManagementKey $RoomKey }
     try {
@@ -456,8 +458,8 @@ function Invoke-LanPowerInstall {
         vpnNetworks = @($VpnNetworks)
         agentTaskName = $TaskName
         updateTaskName = $updateTaskName
-        version = '1.2.3'
-        versionCode = 8
+        version = '1.2.4'
+        versionCode = 9
         installedAt = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json
     Set-LanPowerAtomicFile $configPath ([Text.Encoding]::ASCII.GetBytes($newConfig))

@@ -14,10 +14,13 @@ Manifest chỉ trỏ tới các tệp đã có trong một commit GitHub bất b
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\updates\Publish-UpdateManifest.ps1 `
     -PrivateKeyPath 'DUONG-DAN-NGOAI-REPOSITORY\roomtn20-update-private.xml' `
-    -SourceCommit 'SHA-COMMIT-40-KY-TU' -Version '1.2.3' -VersionCode 8
+    -SourceCommit 'SHA-COMMIT-40-KY-TU' -Version '1.2.4' -VersionCode 9 `
+    -AndroidVersion '1.2.3' -AndroidVersionCode 8
 ```
 
 5. Kiểm tra `stable.json` bằng khóa công khai, commit riêng manifest và push. Bản cập nhật tự động chỉ được quảng bá ở bước này.
+
+Windows và Android có phiên bản độc lập. `Version`/`VersionCode` dùng cho Windows; `AndroidVersion`/`AndroidVersionCode` dùng cho APK, mặc định được đọc từ Gradle nếu không truyền. Chỉ tăng nền tảng có thay đổi; mọi tệp vẫn phải có trong commit nguồn đã chỉ định.
 
 Không tạo khóa ký mới cho mỗi phiên bản: các client đã cài chỉ tin khóa công khai cũ. Chỉ dùng `New-UpdateSigningKey.ps1` khi khởi tạo dòng phần mềm mới hoặc thực hiện quy trình thay khóa có kế hoạch. Mất khóa riêng sẽ không thể ký các bản cập nhật được client cũ tin cậy; cần sao lưu khóa ở nơi riêng, được bảo vệ.
 

@@ -3,7 +3,7 @@ param([string]$OutputPath)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repoRoot = Split-Path -Parent $PSScriptRoot
-if (-not $OutputPath) { $OutputPath = Join-Path $repoRoot 'release\RoomTN20-ClientSetup-1.2.3.exe' }
+if (-not $OutputPath) { $OutputPath = Join-Path $repoRoot 'release\RoomTN20-ClientSetup-1.2.4.exe' }
 $OutputPath = [IO.Path]::GetFullPath($OutputPath)
 $agentPath = Join-Path $repoRoot 'client\StandaloneAgent.ps1'
 $corePath = Join-Path $repoRoot 'client\Install-Core.ps1'
@@ -31,8 +31,8 @@ namespace LanPower.ClientSetup {
         internal const string CoreSha256 = "$coreHash";
         internal const string UpdaterSha256 = "$updaterHash";
         internal const string PublicKeySha256 = "$publicKeyHash";
-        internal const string Version = "1.2.3";
-        internal const int VersionCode = 8;
+        internal const string Version = "1.2.4";
+        internal const int VersionCode = 9;
     }
 }
 "@

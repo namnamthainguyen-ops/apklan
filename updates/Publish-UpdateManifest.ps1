@@ -2,8 +2,10 @@
 param(
     [Parameter(Mandatory)][string]$PrivateKeyPath,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$SourceCommit,
-    [string]$Version = '1.2.3',
-    [int]$VersionCode = 8,
+    [string]$Version = '1.2.4',
+    [int]$VersionCode = 9,
+    [string]$AndroidVersion,
+    [int]$AndroidVersionCode,
     [string]$ReleaseNotes = 'Ho tro LAN/VPN WireGuard/OpenVPN va cap nhat co chu ky.'
 )
 $ErrorActionPreference = 'Stop'
@@ -14,9 +16,13 @@ function Artifact([string]$Path) {
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { throw "Missing release artifact: $Path" }
     return [ordered]@{url = $base + $Path.Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash}
 }
-$android = Artifact "release/RoomTN20-$Version.apk"
-$android.version = $Version
-$android.versionCode = $VersionCode
+$androidMetadata = [IO.File]::ReadAllText((Join-Path $repoRoot 'android-app\app\build.gradle'))
+if (-not $AndroidVersion) { $AndroidVersion = [regex]::Match($androidMetadata, "versionName\s+'([^']+)'").Groups[1].Value }
+if ($AndroidVersionCode -lt 1) { $AndroidVersionCode = [int][regex]::Match($androidMetadata, 'versionCode\s+(\d+)').Groups[1].Value }
+if ($AndroidVersion -notmatch '^\d+\.\d+\.\d+$' -or $AndroidVersionCode -lt 1) { throw 'Android release metadata is invalid.' }
+$android = Artifact "release/RoomTN20-$AndroidVersion.apk"
+$android.version = $AndroidVersion
+$android.versionCode = $AndroidVersionCode
 $android.packageName = 'com.lanpower.standalone'
 $android.signerSha256 = '253e62e567d191b4481aaae2cd087610e1ca730b76e5cf19ec4e97165fa22b5a'
 $payload = [ordered]@{

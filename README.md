@@ -1,4 +1,4 @@
-# Room TN20 1.2.3 — Quản lý phòng máy qua LAN/VPN
+# Room TN20 — Client Windows 1.2.4 / Android 1.2.3
 
 [![Verify Room TN20](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml/badge.svg)](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml)
 
@@ -14,11 +14,13 @@ Bản 1.2.2 đưa các thao tác cập nhật vào menu **⋮** ở góc trên b
 
 Bản 1.2.3 chuẩn bị UWF qua công cụ Windows gốc, kiểm tra lại feature và phản hồi xác thực của client. Bộ cài hỗ trợ cài đè và tự đóng sau 3 giây khi hoàn tất. APK phát hành đã tắt debug, giữ cùng chứng thư để nâng cấp mà không mất phòng đã lưu.
 
+Client 1.2.4 nhận biết Windows Server 2025, Home và Pro: cài phần quản lý nguồn thành công, bỏ qua UWF không được hệ điều hành hỗ trợ rồi tự đóng. Máy Windows IoT Enterprise vẫn được chuẩn bị UWF. APK hiện tại giữ ở phiên bản 1.2.3 vì không cần thay đổi ứng dụng Android.
+
 Mỗi phòng có danh sách máy riêng. Chạm một máy để xem tên, IP, MAC, lần phản hồi gần nhất, trạng thái đóng băng và các nút điều khiển. Chọn nhiều máy hoặc **Chọn tất cả** để thao tác cả phòng; kết quả được báo theo từng máy.
 
 ## Tải về
 
-- **[Tải bộ cài client Windows — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.2.3.exe)** — nhập key phòng rồi chọn **Cài / Cài đè**; tự chuẩn bị UWF.
+- **[Tải bộ cài client Windows 1.2.4 — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.2.4.exe)** — nhập key phòng rồi chọn **Cài / Cài đè**; tự chuẩn bị UWF khi được hỗ trợ.
 - **[Tải APK Room TN20 1.2.3](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.2.3.apk)** — Android 8.0 trở lên, bản phát hành không bật debug.
 - [Tải toàn bộ mã nguồn và bộ cài Windows ZIP](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip).
 - [Xem script cài Windows online](https://github.com/namnamthainguyen-ops/apklan/blob/main/install-online.ps1).
@@ -36,16 +38,18 @@ Tự chọn key gồm đúng **8 ký tự ASCII in được**, phân biệt hoa/
 
 ### Bước 2 — Cài một file EXE trên từng máy Windows
 
-1. [Tải `RoomTN20-ClientSetup-1.2.3.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.2.3.exe), có thể chép cùng file này sang tất cả máy client.
+1. [Tải `RoomTN20-ClientSetup-1.2.4.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.2.4.exe), có thể chép cùng file này sang tất cả máy client.
 2. Mở file với quyền Administrator, nhập key của phòng rồi bấm **Cài / Cài đè**. Không cần gỡ bản cũ; định danh máy và mạng VPN đã lưu được giữ lại nếu không nhập cấu hình mới.
 3. Bộ cài kiểm tra client đã phản hồi đúng khóa/phiên bản, báo **Cài đặt thành công** rồi tự đóng sau 3 giây. Nếu UWF cần restart, thông báo sẽ ghi rõ; bạn tự khởi động lại khi sẵn sàng.
 
 EXE tự cài/chuẩn bị UWF khi hệ điều hành hỗ trợ, không cần chạy script thủ công. Bộ cài báo riêng nếu cần restart hoặc không thể chuẩn bị feature. Nếu UWF chưa sẵn sàng, phần điều khiển bật/tắt vẫn được cài. Bộ cài không tự khởi động lại máy.
 
-Nếu UWF lỗi, bộ cài giữ thông báo và không tự đóng như một lần cài hoàn tất. Mã lỗi DISM, phiên bản Windows và đường dẫn nhật ký được hiển thị để xử lý đúng nguyên nhân. Nhật ký chuẩn bị UWF nằm tại `C:\ProgramData\LanPowerStandalone\uwf-preparation.log`. Thiếu nguồn thành phần Windows hoặc chính sách Windows Update/WSUS có thể cần sửa nguồn cài tương ứng; bộ cài không báo UWF thành công khi kiểm tra thất bại.
+**Windows Server 2025/Home/Pro:** UWF không được hỗ trợ; bộ cài cài client quản lý nguồn, báo rõ giới hạn này rồi tự đóng sau 3 giây. Các máy đó vẫn dùng được bật/tắt/restart và WOL relay; đóng băng C không dùng được. [Các bản Windows hỗ trợ UWF](https://learn.microsoft.com/en-us/windows/configuration/unified-write-filter/).
+
+**Windows IoT Enterprise/Enterprise/Education:** nếu chuẩn bị UWF bị lỗi thật, bộ cài giữ thông báo và không tự đóng như một lần cài hoàn tất. Mã lỗi DISM, phiên bản Windows và đường dẫn nhật ký được hiển thị để xử lý đúng nguyên nhân. Nhật ký chuẩn bị UWF nằm tại `C:\ProgramData\LanPowerStandalone\uwf-preparation.log`. Thiếu nguồn thành phần Windows hoặc chính sách Windows Update/WSUS có thể cần sửa nguồn cài tương ứng; bộ cài không báo UWF thành công khi kiểm tra thất bại.
 
 ```text
-EXE SHA-256: 799017187279AF7CEE98881FC3479A83FB650B5FADA1933222639DB396810000
+EXE SHA-256: 1558B296CABD009A255976DDDC5C844B314CA519F3533ED5D72845293D54B94A
 ```
 
 Bản EXE hiện chưa ký Authenticode; Windows có thể hiển thị nhà xuất bản chưa xác định. Thương hiệu hiển thị trong ứng dụng là **Room TN20 — Công ty TNHH TN20**, website **20.com.vn**.
@@ -60,7 +64,7 @@ $ErrorActionPreference = 'Stop'
 $key = Read-Host 'Nhap key phong gom 8 ky tu, khong khoang trang'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/install-online.ps1'
-$expected = 'F079D74D8A4827EC62204D72FAD7C369656710AE67F7E953FA5A7DAB775FFEF9'
+$expected = '82F42EF8D6DF9DC123B3990A3CE823A3544FABEEEA12FADBB79C04125A994720'
 $file = Join-Path $env:TEMP ('lanpower-install-' + [Guid]::NewGuid().ToString('N') + '.ps1')
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
 if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $expected) { throw 'Installer checksum mismatch.' }
@@ -123,8 +127,8 @@ Client và APK hiển thị phiên bản đang dùng, phiên bản mới và tì
 - **Android:** tự kiểm tra và tải APK đã xác minh. Android thông thường vẫn có thể yêu cầu cấp quyền cài từ nguồn này và xác nhận cài đặt; app dùng bước cài đặt chính thức, không vượt quyền hệ thống. [Quy tắc xác nhận của Android](https://developer.android.com/reference/android/content/pm/PackageInstaller.SessionParams#setRequireUserAction(int)).
 - Trên APK, mở menu **⋮** ở góc trên bên phải rồi chọn **Kiểm tra cập nhật**, **Cài bản mới** hoặc **Trạng thái cập nhật**. Mục cài đặt tiếp tục dùng xác nhận của Android khi hệ thống yêu cầu.
 - Kiểm tra đúng package/chứng thư APK, từ chối chữ ký sai, checksum sai, URL ngoài nguồn cho phép và phiên bản thấp hơn. Có Internet mới kiểm tra được bản phát hành trên GitHub; chức năng quản lý LAN/VPN vẫn dùng dữ liệu cục bộ khi không có Internet.
-- Bản 1.1.x chưa có bộ tự cập nhật: cần cài 1.2.3 một lần trên điện thoại và máy client để bắt đầu nhận các bản mới tiếp theo.
-- Client Windows 1.2.0 thử nghiệm cần chạy lại EXE 1.2.3 để sửa lỗi thay thế tệp; từ client 1.2.1 trở lên có thể nhận cập nhật tự động khi C không đang được bảo vệ.
+- Bản 1.1.x chưa có bộ tự cập nhật: cần cài APK 1.2.3 và client Windows 1.2.4 một lần để bắt đầu nhận các bản mới tiếp theo.
+- Client Windows 1.2.0 thử nghiệm cần chạy lại EXE 1.2.4 để sửa lỗi thay thế tệp; từ client 1.2.1 trở lên có thể nhận cập nhật tự động khi C không đang được bảo vệ.
 
 Khóa ký riêng của nhà phát hành không nằm trong repository hoặc bộ cài. Nếu phát hành phiên bản mới, sử dụng `updates/Publish-UpdateManifest.ps1` với khóa riêng được bảo vệ; không đặt khóa riêng lên GitHub hoặc trong tệp ZIP mã nguồn.
 
@@ -184,6 +188,8 @@ APK SHA-256: FC718CB65BA79DFCB6BFE7EF3BA60E38A306A099173B97345A784969C2A18EC3
 ### Cảnh báo bảo mật Android
 
 APK cài từ GitHub nằm ngoài Google Play. Android có thể yêu cầu quyền cài từ nguồn này hoặc đề nghị quét ứng dụng mới. Cảnh báo **ứng dụng có hại/bị chặn** cần kiểm tra nguyên văn lý do; không thể kết luận là cảnh báo nhầm chỉ vì phần mềm đã qua CI. Bản 1.2.3 đã bỏ debug nhưng không bảo đảm mọi điện thoại sẽ hết cảnh báo. [Phân loại cảnh báo của Google](https://developers.google.com/android/play-protect/warning-dev-guidance), [Google Play Protect](https://support.google.com/googleplay/answer/2812853?hl=vi).
+
+Nếu Play Protect chỉ **đề nghị quét ứng dụng**, chọn **Quét ứng dụng** và chờ kết quả của Google trước khi tiếp tục cài.
 
 ## 5. Đóng/mở đóng băng ổ C từ APK
 

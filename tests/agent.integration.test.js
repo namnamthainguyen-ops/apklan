@@ -64,7 +64,7 @@ test('real agent ignores malformed, oversized, unsigned and wrongly signed disco
   assert.equal(reply.signature, sign(agent.key, `discovery\n${nonce}\n${reply.deviceId}\n${reply.hostname}\n${reply.mac}`));
   assert.equal(reply.capabilities, 'power,uwf,wolrelay');
   assert.equal(reply.stateSignature, sign(agent.key, `state\n${nonce}\n${reply.deviceId}\n${reply.agentVersion}\n${reply.uwf}\n${reply.capabilities}`));
-  assert.equal(reply.clientVersionCode, 8);
+  assert.equal(reply.clientVersionCode, 9);
   assert.equal(reply.updateSignature, sign(agent.key, `update\n${nonce}\n${reply.deviceId}\n${reply.clientVersionCode}\n${reply.latestVersion}\n${reply.updateStatus}\n${reply.updateMessage}`));
 });
 

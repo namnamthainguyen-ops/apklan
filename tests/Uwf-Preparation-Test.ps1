@@ -123,10 +123,13 @@ Add-NativeResult 'Enabled'
 $result = Initialize-LanPowerUwfFeature
 Assert-True ($result.Status -eq 'ready' -and -not $result.RestartRequired) 'Successful restored feature is ready after verification.'
 
-Reset-Fixture
-$script:Edition = 'Professional'
-Assert-Failure { Initialize-LanPowerUwfFeature } 'UWF_UNSUPPORTED_EDITION'
-Assert-True ($script:NativeCalls.Count -eq 0) 'Unsupported Windows edition must not attempt feature installation.'
+foreach ($unsupported in @('Professional', 'Core', 'ServerDatacenter', 'ServerStandard')) {
+    Reset-Fixture
+    $script:Edition = $unsupported
+    $result = Initialize-LanPowerUwfFeature
+    Assert-True ($result.Status -eq 'not-supported' -and -not $result.RestartRequired -and $result.FeatureState -eq 'NotSupported') 'Unsupported Windows must allow successful power-only client installation.'
+    Assert-True ($script:NativeCalls.Count -eq 0) 'Unsupported Windows edition must not attempt feature installation.'
+}
 
 Reset-Fixture
 $script:GuardBlocked = $true

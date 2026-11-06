@@ -33,6 +33,9 @@ jobs:
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors)
             if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
           }
+      - name: Verify actual Windows Server skips unsupported UWF without servicing Windows
+        shell: powershell
+        run: ./tests/Server-PowerOnly.ps1
       - name: Room-key derivation, authenticated state and UDP power/UWF integration tests
         run: node --test --test-concurrency=1 tests/*.test.js
       - name: Install, verify SYSTEM task and firewall, reinstall, uninstall
@@ -55,16 +58,16 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path '.ci-client-setup/published', '.ci-client-setup/built' -Force | Out-Null
-          Copy-Item -LiteralPath 'release/RoomTN20-ClientSetup-1.2.3.exe' -Destination '.ci-client-setup/published/RoomTN20-ClientSetup-1.2.3.exe'
-          ./client-installer/Build.ps1 -OutputPath '.ci-client-setup/built/RoomTN20-ClientSetup-1.2.3.exe'
+          Copy-Item -LiteralPath 'release/RoomTN20-ClientSetup-1.2.4.exe' -Destination '.ci-client-setup/published/RoomTN20-ClientSetup-1.2.4.exe'
+          ./client-installer/Build.ps1 -OutputPath '.ci-client-setup/built/RoomTN20-ClientSetup-1.2.4.exe'
       - name: Verify embedded payload hashes, KDF and in-process form contract
         shell: powershell
         run: |
-          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/built/RoomTN20-ClientSetup-1.2.3.exe'
-          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/published/RoomTN20-ClientSetup-1.2.3.exe'
+          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/built/RoomTN20-ClientSetup-1.2.4.exe'
+          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/published/RoomTN20-ClientSetup-1.2.4.exe'
       - name: Install from single published EXE, verify SYSTEM agent, reinstall and uninstall
         shell: powershell
-        run: ./tests/Install-Smoke.ps1 -InstallerExe '.ci-client-setup/published/RoomTN20-ClientSetup-1.2.3.exe'
+        run: ./tests/Install-Smoke.ps1 -InstallerExe '.ci-client-setup/published/RoomTN20-ClientSetup-1.2.4.exe'
       - name: Record installer checksums
         shell: powershell
         run: |
