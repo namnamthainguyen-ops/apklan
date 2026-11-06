@@ -1,6 +1,6 @@
 # Room TN20 Android
 
-**Room TN20 1.2.0**, thương hiệu **TN20** của **Công ty TNHH TN20**, quản lý nhiều phòng trực tiếp trong LAN hoặc VPN có định tuyến tới máy con, không dùng API hay máy chủ trung tâm. Website: [20.com.vn](https://20.com.vn). Link trong app chỉ mở khi người dùng chạm. Yêu cầu Android 8.0 (API 26) trở lên.
+**Room TN20 1.2.1**, thương hiệu **TN20** của **Công ty TNHH TN20**, quản lý nhiều phòng trực tiếp trong LAN hoặc VPN có định tuyến tới máy con, không dùng API hay máy chủ trung tâm. Website: [20.com.vn](https://20.com.vn). Link trong app chỉ mở khi người dùng chạm. Yêu cầu Android 8.0 (API 26) trở lên.
 
 Tên hiển thị và giao diện nhận thương hiệu mới; applicationId `com.lanpower.standalone`, vùng lưu dữ liệu và khóa mã hóa vẫn giữ nguyên để nâng cấp mà không mất phòng/máy đã lưu. Bản APK nâng cấp sử dụng cùng chứng thư ký với các bản trước.
 

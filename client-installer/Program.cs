@@ -22,8 +22,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("TN20 - Trình cài client quản lý máy tính trong mạng LAN")]
 [assembly: AssemblyCompany("Công ty TNHH TN20")]
 [assembly: AssemblyProduct("Room TN20")]
-[assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyVersion("1.2.1.0")]
+[assembly: AssemblyFileVersion("1.2.1.0")]
 [assembly: TargetFramework(".NETFramework,Version=v4.7.2", FrameworkDisplayName = ".NET Framework 4.7.2")]
 
 namespace LanPower.ClientSetup
@@ -223,7 +223,7 @@ namespace LanPower.ClientSetup
                     if (values.Count != 1) throw new InvalidOperationException("Invalid update manifest.");
                     windows = PSObject.AsPSObject(values[0].Properties["windows"].Value);
                 }
-                if (Convert.ToInt32(windows.Properties["versionCode"].Value) <= 5 || windows.Properties["setup"] == null) return null;
+                if (Convert.ToInt32(windows.Properties["versionCode"].Value) <= PayloadInfo.VersionCode || windows.Properties["setup"] == null) return null;
                 PSObject setup = PSObject.AsPSObject(windows.Properties["setup"].Value);
                 string url = Convert.ToString(setup.Properties["url"].Value);
                 string hash = Convert.ToString(setup.Properties["sha256"].Value);
@@ -480,7 +480,7 @@ namespace LanPower.ClientSetup
             closeButton.Size = new Size(106, 34);
             closeButton.Click += delegate { Close(); };
             updateLink.Name = "SetupUpdateLink";
-            updateLink.Text = "Phiên bản 1.2.0 · tự cập nhật client";
+            updateLink.Text = "Phiên bản 1.2.1 · tự cập nhật client";
             updateLink.LinkArea = new LinkArea(0, 0);
             updateLink.Location = new Point(28, 402);
             updateLink.Size = new Size(260, 34);
@@ -544,7 +544,7 @@ namespace LanPower.ClientSetup
         {
             using (SetupForm form = new SetupForm(true))
             {
-                if (form.Text != "Room TN20 - Client Setup 1.2.0" || form.Controls["BrandTitleLabel"].Text != "Room TN20" ||
+                if (form.Text != "Room TN20 - Client Setup 1.2.1" || form.Controls["BrandTitleLabel"].Text != "Room TN20" ||
                     form.Controls["CompanyLabel"].Text != "Công ty TNHH TN20" || form.Controls["WebsiteLinkLabel"].Text != "20.com.vn")
                     throw new InvalidOperationException("Installer branding contract failed.");
                 if (form.keyInput.Name != "RoomKeyInput" || form.keyInput.MaxLength != 256 || !form.keyInput.UseSystemPasswordChar ||

@@ -6,7 +6,7 @@ $tokens = $null
 $parseErrors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($sourcePath, [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw 'Production updater does not parse.' }
-foreach ($name in @('Test-RoomTN20DownloadUrl', 'Test-RoomTN20NewerVersion', 'Read-RoomTN20Manifest')) {
+foreach ($name in @('Test-RoomTN20DownloadUrl', 'Test-RoomTN20NewerVersion', 'Read-RoomTN20Manifest', 'Read-RoomTN20BoundedUtf8')) {
     $functions = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
     if ($functions.Count -ne 1) { throw "Expected one updater function $name." }
     . ([scriptblock]::Create($functions[0].Extent.Text))
@@ -40,6 +40,18 @@ function New-TestEnvelope {
     $signature = $Signer.SignData($bytes, [Security.Cryptography.CryptoConfig]::MapNameToOID('SHA256'))
     return [ordered]@{ algorithm = 'RS256'; payload = [Convert]::ToBase64String($bytes); signature = [Convert]::ToBase64String($signature) } | ConvertTo-Json -Compress
 }
+
+$maximumManifestBytes = [IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes(('A' * 262144)))
+$oversizedManifestBytes = [IO.MemoryStream]::new((New-Object byte[] 1048576))
+$invalidUtf8Bytes = [IO.MemoryStream]::new([byte[]]@(255, 255))
+try {
+    $decoded = Read-RoomTN20BoundedUtf8 -Stream $maximumManifestBytes
+    Assert-True ($decoded.Length -eq 262144) 'An exactly 256 KiB manifest must be accepted.'
+    Assert-Rejected { Read-RoomTN20BoundedUtf8 -Stream $oversizedManifestBytes } 'An unknown-length oversized manifest must be rejected during stream reading.'
+    Assert-True ($oversizedManifestBytes.Position -eq 262145) 'Oversized response must stop after at most one overflow-detection byte; never consume the rest.'
+    Assert-Rejected { Read-RoomTN20BoundedUtf8 -Stream $invalidUtf8Bytes } 'Malformed UTF-8 must be rejected before parsing.'
+}
+finally { $maximumManifestBytes.Dispose(); $oversizedManifestBytes.Dispose(); $invalidUtf8Bytes.Dispose() }
 
 $key = [Security.Cryptography.RSACryptoServiceProvider]::new(3072)
 $wrongKey = [Security.Cryptography.RSACryptoServiceProvider]::new(3072)

@@ -69,16 +69,9 @@ function Assert-WithinHarness {
         throw "Filesystem mutation escaped isolated updater test directory: $full"
     }
 }
-function Invoke-WebRequest {
-    param([switch]$UseBasicParsing, [string]$Uri, [string]$OutFile, [int]$TimeoutSec, [int]$MaximumRedirection)
-    if ($MaximumRedirection -ne 0 -or $TimeoutSec -lt 1) { throw 'Update requests must be bounded and reject redirects.' }
+function Get-RoomTN20ManifestJson {
     $script:Downloads++
-    if (-not $OutFile) { return [pscustomobject]@{ Content = $script:Envelope } }
-    Assert-WithinHarness $OutFile
-    $filename = [IO.Path]::GetFileName(([Uri]$Uri).AbsolutePath)
-    if (-not $script:PayloadBytes.ContainsKey($filename)) { throw 'Unexpected mocked download.' }
-    $bytes = if ($script:CorruptDownload) { [Text.Encoding]::ASCII.GetBytes('tampered') } else { $script:PayloadBytes[$filename] }
-    [IO.File]::WriteAllBytes($OutFile, $bytes)
+    return $script:Envelope
 }
 function Save-RoomTN20Download {
     param([string]$Url, [string]$Path, [int]$MaximumBytes)

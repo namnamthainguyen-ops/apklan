@@ -94,6 +94,43 @@ function Save-RoomTN20Download {
     finally { $response.Dispose() }
 }
 
+function Read-RoomTN20BoundedUtf8 {
+    param([IO.Stream]$Stream, [ValidateRange(1, 262144)][int]$MaximumBytes = 262144)
+    $output = [IO.MemoryStream]::new()
+    try {
+        $buffer = New-Object byte[] 16384
+        $total = 0
+        while ($true) {
+            # Read at most one byte beyond the limit to detect an oversized
+            # response even when Content-Length is missing or dishonest.
+            $count = [Math]::Min($buffer.Length, $MaximumBytes - $total + 1)
+            $read = $Stream.Read($buffer, 0, $count)
+            if ($read -eq 0) { break }
+            $total += $read
+            if ($total -gt $MaximumBytes) { throw 'UPDATE_MANIFEST_TOO_LARGE' }
+            $output.Write($buffer, 0, $read)
+        }
+        return ([Text.UTF8Encoding]::new($false, $true)).GetString($output.ToArray())
+    }
+    finally { $output.Dispose() }
+}
+
+function Get-RoomTN20ManifestJson {
+    $request = [Net.HttpWebRequest]::Create('https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/updates/stable.json')
+    $request.AllowAutoRedirect = $false
+    $request.Timeout = 30000
+    $request.ReadWriteTimeout = 30000
+    $response = $request.GetResponse()
+    try {
+        if ([int]$response.StatusCode -ne 200) { throw 'UPDATE_MANIFEST_STATUS_INVALID' }
+        if ($response.ContentLength -gt 262144) { throw 'UPDATE_MANIFEST_TOO_LARGE' }
+        $stream = $response.GetResponseStream()
+        try { return Read-RoomTN20BoundedUtf8 -Stream $stream -MaximumBytes 262144 }
+        finally { $stream.Dispose() }
+    }
+    finally { $response.Dispose() }
+}
+
 function Invoke-RoomTN20Update {
     $root = $PSScriptRoot
     $configPath = Join-Path $root 'config.json'
@@ -110,9 +147,7 @@ function Invoke-RoomTN20Update {
         . (Join-Path $root 'Install-Core.ps1')
         [void](Get-LanPowerInstallPath $root)
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $manifestUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/updates/stable.json'
-        $response = Invoke-WebRequest -UseBasicParsing -Uri $manifestUrl -TimeoutSec 30 -MaximumRedirection 0
-        $manifest = Read-RoomTN20Manifest -EnvelopeJson ([string]$response.Content) -PublicKeyXml (Get-Content -LiteralPath (Join-Path $root 'Update-PublicKey.xml') -Raw)
+        $manifest = Read-RoomTN20Manifest -EnvelopeJson (Get-RoomTN20ManifestJson) -PublicKeyXml (Get-Content -LiteralPath (Join-Path $root 'Update-PublicKey.xml') -Raw)
         $latest = [string]$manifest.windows.version
         if (-not (Test-RoomTN20NewerVersion $currentCode ([int]$manifest.windows.versionCode))) {
             Write-RoomTN20UpdateStatus $root $currentCode $latest 'current' 'The installed client is current.'

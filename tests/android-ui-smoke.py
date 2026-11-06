@@ -109,10 +109,14 @@ def assert_branding():
     assert safe is not None, "Root does not expose applied system-bar/cutout safe area"
     inset_left, inset_top, inset_right, inset_bottom = map(int, safe.attrib["content-desc"].split(":", 1)[1].split(","))
     assert inset_top > 0, "Emulator status-bar inset must reserve space above the app header"
+    _, _, _, safe_bottom = map(int, re.findall(r"\d+", safe.attrib["bounds"]))
     for node in tree.iter("node"):
         if node.attrib.get("text") in {"Room TN20", "TN20", "Các phòng"}:
             _, top, _, _ = map(int, re.findall(r"\d+", node.attrib["bounds"]))
             assert top >= inset_top, "App header overlaps the phone status/notification bar"
+        if node.attrib.get("text") in {"Công ty TNHH TN20", "20.com.vn"}:
+            _, _, _, bottom = map(int, re.findall(r"\d+", node.attrib["bounds"]))
+            assert bottom <= safe_bottom - inset_bottom, "App footer overlaps the phone navigation bar"
     print("ANDROID_SYSTEM_INSETS=PASS (header below status bar/cutout, bottom navigation reserved)")
     print("ANDROID_BRANDING=PASS (Room TN20, TN20, company and website)")
 

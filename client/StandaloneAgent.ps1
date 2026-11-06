@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.2.0'
+$AgentVersion = '1.2.1'
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -293,7 +293,7 @@ try {
                         uwf = $uwfState
                         capabilities = $capabilities
                         stateSignature = $stateSignature
-                        clientVersionCode = 5
+                        clientVersionCode = 6
                         latestVersion = $update.latestVersion
                         updateStatus = $update.status
                         updateMessage = $update.message

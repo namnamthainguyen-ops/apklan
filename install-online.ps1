@@ -12,11 +12,11 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $AgentUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/StandaloneAgent.ps1'
-$AgentSha256 = '887809A8BD71CDD1BEC69B907720F7B55213EBA599FDE0B7702AF207EAD1278B'
+$AgentSha256 = '26054B7E0B3A684D43BF33FBC225FC88F5459C094293E7125EAAA13791C76CAF'
 $CoreUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Install-Core.ps1'
-$CoreSha256 = 'FD01B6CBD8E4E073852C3645565D1F3BC6F6984B2BA7F3C37636553478B02326'
+$CoreSha256 = '4C3449EF636475E7B98F5B6EBC1752A0F9D67DE05374E4B11DF93C3458BCFEF4'
 $UpdaterUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Update-Agent.ps1'
-$UpdaterSha256 = '757723D3E3A2EFD9EA92D46EDA1E2BD477FAFEB1B1596E16311E32DFC8FBF0DE'
+$UpdaterSha256 = '9E0B25020138259E77333FE048E85B899AB895F85284CCE536E9E716656701D1'
 $PublicKeyUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Update-PublicKey.xml'
 $PublicKeySha256 = '050AB33ED6D45DDEF846DDE7D5882E2B1F698154C8306860DC70531A23EE0333'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()

@@ -167,7 +167,9 @@ function Set-LanPowerAtomicFile {
     $temporary = $Path + '.new-' + [Guid]::NewGuid().ToString('N')
     try {
         [IO.File]::WriteAllBytes($temporary, $Bytes)
-        if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($temporary, $Path, $null) }
+        # Windows PowerShell 5.1 converts $null to an empty string for this
+        # .NET string argument. NullString supplies the actual null backup path.
+        if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($temporary, $Path, [NullString]::Value) }
         else { [IO.File]::Move($temporary, $Path) }
     }
     finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force } }
@@ -265,8 +267,8 @@ function Invoke-LanPowerInstall {
         vpnNetworks = @($VpnNetworks)
         agentTaskName = $TaskName
         updateTaskName = $updateTaskName
-        version = '1.2.0'
-        versionCode = 5
+        version = '1.2.1'
+        versionCode = 6
         installedAt = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json
     Set-LanPowerAtomicFile $configPath ([Text.Encoding]::ASCII.GetBytes($newConfig))
