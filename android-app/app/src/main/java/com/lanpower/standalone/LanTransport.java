@@ -38,7 +38,7 @@ final class LanTransport {
         if (socket != null) socket.close();
     }
 
-    List<ManagedDevice> discover(String key) throws Exception {
+    List<ManagedDevice> discover(String key, List<String> unicastTargets) throws Exception {
         String nonce = UUID.randomUUID().toString().replace("-", "");
         JSONObject request = new JSONObject().put("type", "discover").put("nonce", nonce)
                 .put("signature", LanProtocol.hmac(key, "discover\n" + nonce));
@@ -46,7 +46,10 @@ final class LanTransport {
         Map<String, ManagedDevice> found = new LinkedHashMap<>();
         try (DatagramSocket socket = openSocket()) {
             socket.setBroadcast(true);
-            sendToAddresses(socket, bytes, PORT);
+            socket.setReceiveBufferSize(1024 * 1024);
+            Set<InetAddress> destinations = addresses();
+            for (String target : unicastTargets) if (VpnTargets.isPrivateAddress(target)) destinations.add(InetAddress.getByName(target));
+            sendToAddresses(socket, bytes, PORT, destinations);
             long deadline = System.nanoTime() + 2_600_000_000L;
             while (System.nanoTime() < deadline && !closed) {
                 socket.setSoTimeout((int) Math.max(1, Math.min(350, (deadline - System.nanoTime()) / 1_000_000L)));
@@ -75,6 +78,19 @@ final class LanTransport {
                     } catch (IllegalArgumentException invalidState) {
                         // Legacy agents remain usable for power; unsigned state never enables UWF.
                     }
+                    try {
+                        long code = response.optLong("clientVersionCode", -1);
+                        String latest = response.optString("latestVersion", "unknown");
+                        String updateStatus = response.optString("updateStatus", "unknown");
+                        String updateMessage = response.optString("updateMessage", "");
+                        if (LanProtocol.verify(key, LanProtocol.updateCanonical(nonce, id, code, latest, updateStatus, updateMessage), response.optString("updateSignature"))) {
+                            device.clientVersionCode = code;
+                            device.latestVersion = latest;
+                            device.updateStatus = updateStatus;
+                            device.updateMessage = updateMessage;
+                            device.updateAuthenticated = true;
+                        }
+                    } catch (IllegalArgumentException invalidUpdate) { }
                     found.put(id, device);
                 } catch (SocketTimeoutException ignored) { }
                 catch (JSONException | IllegalArgumentException malformed) {
@@ -89,18 +105,29 @@ final class LanTransport {
     String wake(ManagedDevice device) throws Exception {
         try (DatagramSocket socket = openSocket()) {
             socket.setBroadcast(true);
-            sendToAddresses(socket, LanProtocol.magicPacket(device.mac), 9);
+            sendToAddresses(socket, LanProtocol.magicPacket(device.mac), 9, addresses());
         } finally { activeSocket = null; }
-        return "Đã gửi Magic Packet; cần quét lại để xác nhận máy bật";
+        return "Đã gửi Magic Packet trong LAN cục bộ; VPN không chuyển broadcast tin cậy. Cần relay đang online trong LAN đích để bật máy từ xa; quét lại để xác nhận";
     }
 
     String command(String key, ManagedDevice device, String action) throws Exception {
+        return command(key, device, action, null);
+    }
+
+    String relayWake(String key, ManagedDevice relay, ManagedDevice target) throws Exception {
+        return command(key, relay, "wake", LanProtocol.normalizeMac(target.mac));
+    }
+
+    private String command(String key, ManagedDevice device, String action, String targetMac) throws Exception {
         String requestId = UUID.randomUUID().toString();
         String nonce = UUID.randomUUID().toString().replace("-", "");
         long timestamp = Instant.now().getEpochSecond();
+        String canonical = "wake".equals(action) ? LanProtocol.wakeCanonical(requestId, device.id, timestamp, nonce, targetMac)
+                : LanProtocol.commandCanonical(requestId, device.id, action, timestamp, nonce);
         JSONObject request = new JSONObject().put("type", "command").put("requestId", requestId).put("deviceId", device.id)
                 .put("action", action).put("timestamp", timestamp).put("nonce", nonce)
-                .put("signature", LanProtocol.hmac(key, LanProtocol.commandCanonical(requestId, device.id, action, timestamp, nonce)));
+                .put("signature", LanProtocol.hmac(key, canonical));
+        if (targetMac != null) request.put("targetMac", targetMac);
         byte[] bytes = request.toString().getBytes(StandardCharsets.UTF_8);
         try (DatagramSocket socket = openSocket()) {
             socket.connect(InetAddress.getByName(device.ip), PORT);
@@ -120,8 +147,8 @@ final class LanTransport {
                     String message = response.optString("message");
                     boolean verifiedDetail = LanProtocol.verifyAckDetail(key, requestId, status, message, response.optString("detailSignature"));
                     if (!"accepted".equals(status)) throw new IOException(verifiedDetail ? message : "Agent từ chối lệnh (không có chi tiết đã xác thực)");
-                    if ("freeze".equals(action) || "unfreeze".equals(action)) {
-                        if (!verifiedDetail) throw new IOException("Chưa xác thực được kết quả UWF; cần agent mới và quét lại trạng thái");
+                    if ("freeze".equals(action) || "unfreeze".equals(action) || "wake".equals(action)) {
+                        if (!verifiedDetail) throw new IOException("Chưa xác thực được chi tiết kết quả; cần agent mới và quét lại trạng thái");
                         return message;
                     }
                     return verifiedDetail ? message : "Agent đã nhận lệnh; quét lại để kiểm tra trạng thái";
@@ -144,10 +171,11 @@ final class LanTransport {
         return socket;
     }
 
-    private void sendToAddresses(DatagramSocket socket, byte[] bytes, int port) throws Exception {
+    private void sendToAddresses(DatagramSocket socket, byte[] bytes, int port, Set<InetAddress> destinations) throws Exception {
         int sent = 0;
         IOException lastError = null;
-        for (InetAddress address : addresses()) {
+        for (InetAddress address : destinations) {
+            if (closed) throw new IOException("Đã đóng kết nối");
             try {
                 socket.send(new DatagramPacket(bytes, bytes.length, address, port));
                 sent++;

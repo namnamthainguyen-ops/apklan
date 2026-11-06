@@ -105,6 +105,15 @@ def assert_branding():
         assert label in texts, f"Missing Room TN20 branding: {label}"
     assert any(node.attrib.get("text") == "20.com.vn" and node.attrib.get("content-desc") == "https://20.com.vn"
                for node in tree.iter("node")), "Website label does not identify the TN20 website"
+    safe = next((node for node in tree.iter("node") if node.attrib.get("content-desc", "").startswith("safe-area:")), None)
+    assert safe is not None, "Root does not expose applied system-bar/cutout safe area"
+    inset_left, inset_top, inset_right, inset_bottom = map(int, safe.attrib["content-desc"].split(":", 1)[1].split(","))
+    assert inset_top > 0, "Emulator status-bar inset must reserve space above the app header"
+    for node in tree.iter("node"):
+        if node.attrib.get("text") in {"Room TN20", "TN20", "Các phòng"}:
+            _, top, _, _ = map(int, re.findall(r"\d+", node.attrib["bounds"]))
+            assert top >= inset_top, "App header overlaps the phone status/notification bar"
+    print("ANDROID_SYSTEM_INSETS=PASS (header below status bar/cutout, bottom navigation reserved)")
     print("ANDROID_BRANDING=PASS (Room TN20, TN20, company and website)")
 
 
@@ -181,6 +190,53 @@ def refresh():
     before = last_scans()
     tap(by_id("refresh"), lambda _tree: any(value > before.get(room_id, 0) for room_id, value in last_scans().items()))
     wait_idle()
+
+
+def configure_vpn_target():
+    tap(by_id("network_settings"), lambda tree: has_id(tree, "network_targets_input"))
+    type_field("network_targets_input", "10.0.2.2")
+    tap_text("Lưu mạng", lambda tree: not has_id(tree, "network_targets_input"))
+    wait_idle()
+    room = next(room for room in saved_rooms() if room["name"] == ROOM_A)
+    assert room.get("networkTargets") == "10.0.2.2", "Room VPN target was not persisted"
+
+
+def verify_directed_vpn():
+    open_room(ROOM_A)
+    configure_vpn_target()
+    home()
+    before = control()["discoveryByRoom"].get("A", 0)
+    adb("shell", "am", "force-stop", PACKAGE)
+    # This launch intentionally has no lanpower_ci extra, so the fixture route
+    # must come from the room's stored private-IP target, not a test shortcut.
+    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity", "--ez", "disable_updates", "true")
+    wait_text("Các phòng")
+    open_room(ROOM_A)
+    refresh()
+    wait_text("2 online")
+    assert control()["discoveryByRoom"].get("A", 0) > before, "Configured VPN target did not receive authenticated directed discovery"
+    room = next(room for room in saved_rooms() if room["name"] == ROOM_A)
+    assert {device["hostname"] for device in room["devices"]} == {"CI-A-01", "CI-A-02"}, "VPN discovery crossed room keys"
+    # Leave one peer online and wake the other through its authenticated LAN
+    # relay. The emulator test-only unicast route remains disabled throughout.
+    target_id = sorted(IDS_A)[1]
+    select_target = lambda node: by_id("device_select")(node) and node.get("content-desc") == "Chọn CI-A-02"
+    tap(select_target, lambda tree: any(select_target(node.attrib) and node.attrib.get("checked") == "true" for node in tree.iter("node")))
+    bulk("shutdown", {target_id})
+    refresh()
+    scroll_top()
+    wait_text("1 online")
+    start = len(control()["events"])
+    tap(by_id("action_wake"), lambda tree: has_button(tree, "Thực hiện"))
+    tap_text("Thực hiện", lambda tree: not has_button(tree, "Thực hiện"))
+    wait_events(start, "wake-relay", {target_id})
+    close_result()
+    refresh()
+    scroll_top()
+    wait_text("2 online")
+    print("ANDROID_VPN_RELAY=PASS (signed relay through online same-room peer, target MAC bound, no fixture-route shortcut)")
+    home()
+    print("ANDROID_VPN_DISCOVERY=PASS (persisted private-IP target, no emulator fixture route, authenticated room isolation)")
 
 
 def visible_devices():
@@ -374,4 +430,5 @@ for name, expected in [(ROOM_A, {"CI-A-01", "CI-A-02"}), (ROOM_B, {"CI-B-03"})]:
     assert visible_devices() == expected, "Stored encrypted room key failed discovery after restart"
     wait_text(f"{len(expected)} online")
     home()
+verify_directed_vpn()
 print("ANDROID_UI_SMOKE_TEST=PASS (multiple rooms, 8-character keys, real UDP isolation, online/offline, details, bulk UWF/power/WOL, encrypted persistence)")

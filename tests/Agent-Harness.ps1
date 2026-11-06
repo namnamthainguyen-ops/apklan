@@ -8,7 +8,7 @@ if ($errors.Count -gt 0) { throw 'Cannot parse production agent.' }
 $replacements = @{
     'Get-PrimaryMacAddress' = "function Get-PrimaryMacAddress { return '00:11:22:33:44:55' }"
     'Get-UwfState' = "function Get-UwfState { if (Get-Variable TestUwfState -Scope Script -ErrorAction SilentlyContinue) { return `$script:TestUwfState }; return 'OFF' }"
-    'Get-UwfCapabilities' = "function Get-UwfCapabilities { return 'power,uwf' }"
+    'Get-UwfCapabilities' = "function Get-UwfCapabilities { return 'power,uwf,wolrelay' }"
     'Invoke-UwfCommand' = "function Invoke-UwfCommand { throw 'Unsafe test: native UWF execution was attempted.' }"
     'Invoke-UwfAction' = @'
 function Invoke-UwfAction {
@@ -22,6 +22,7 @@ function Invoke-UwfAction {
 }
 '@
     'Invoke-PowerAction' = 'function Invoke-PowerAction { param([string]$Action) Write-Output "TEST_POWER_ACTION=$Action" }'
+    'Invoke-WakeRelay' = 'function Invoke-WakeRelay { param([string]$Mac) [Console]::WriteLine("TEST_WAKE_RELAY=$Mac"); return "Wake-on-LAN relayed." }'
 }
 $edits = @()
 foreach ($name in $replacements.Keys) {

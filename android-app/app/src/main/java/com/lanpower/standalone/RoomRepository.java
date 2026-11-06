@@ -30,6 +30,7 @@ final class RoomRepository {
                 RoomModel room = new RoomModel(value.getString("id"), value.getString("name"), value.optBoolean("legacy"), keys.loadRoom(value.getString("id")));
                 readDevices(room, value.optJSONArray("devices"));
                 room.lastScan = value.optLong("lastScan");
+                room.networkTargets = value.optString("networkTargets", "");
                 rooms.add(room);
             }
             return rooms;
@@ -56,7 +57,7 @@ final class RoomRepository {
                         .put("stateAuthenticated", device.stateAuthenticated).put("agentVersion", device.agentVersion).put("lastSeen", device.lastSeen));
             }
             values.put(new JSONObject().put("id", room.id).put("name", room.name).put("legacy", room.legacy)
-                    .put("lastScan", room.lastScan).put("devices", devices));
+                    .put("lastScan", room.lastScan).put("networkTargets", room.networkTargets).put("devices", devices));
         }
         if (!preferences.edit().putString("rooms", values.toString()).commit()) throw new IllegalStateException("Không lưu được danh sách phòng");
     }

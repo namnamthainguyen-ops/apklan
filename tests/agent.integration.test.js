@@ -12,7 +12,8 @@ const { once } = require('node:events');
 function sign(key, value) { return crypto.createHmac('sha256', Buffer.from(key, 'base64')).update(value).digest('base64'); }
 function command(key, deviceId, overrides = {}) {
   const value = { type: 'command', requestId: crypto.randomUUID(), deviceId, action: 'shutdown', timestamp: Math.floor(Date.now() / 1000), nonce: crypto.randomUUID(), ...overrides };
-  value.signature = sign(key, `command\n${value.requestId}\n${value.deviceId}\n${value.action}\n${value.timestamp}\n${value.nonce}`);
+  const canonical = `command\n${value.requestId}\n${value.deviceId}\n${value.action}\n${value.timestamp}\n${value.nonce}`;
+  value.signature = sign(key, canonical + (value.action === 'wake' ? `\n${value.targetMac}` : ''));
   return value;
 }
 async function startAgent(t, options = {}) {
@@ -61,7 +62,7 @@ test('real agent ignores malformed, oversized, unsigned and wrongly signed disco
   const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
   assert.equal(reply.type, 'discovery'); assert.equal(reply.requestNonce, nonce); assert.equal(reply.deviceId, agent.deviceId);
   assert.equal(reply.signature, sign(agent.key, `discovery\n${nonce}\n${reply.deviceId}\n${reply.hostname}\n${reply.mac}`));
-  assert.equal(reply.capabilities, 'power,uwf');
+  assert.equal(reply.capabilities, 'power,uwf,wolrelay');
   assert.equal(reply.stateSignature, sign(agent.key, `state\n${nonce}\n${reply.deviceId}\n${reply.agentVersion}\n${reply.uwf}\n${reply.capabilities}`));
 });
 
@@ -135,4 +136,22 @@ test('failed UWF operation returns signed rejection and agent remains available'
   const nonce = crypto.randomUUID();
   assert.equal((await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000)).deviceId, agent.deviceId);
   assert.doesNotMatch(agent.output(), /TEST_POWER_ACTION|TEST_UWF_ACTION/);
+});
+
+test('authenticated VPN Wake-on-LAN relay binds the target MAC and leaves the agent listening', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t);
+  const forged = command(agent.key, agent.deviceId, { action: 'wake', targetMac: '02:00:00:00:00:01' });
+  forged.targetMac = '02:00:00:00:00:02';
+  assert.equal(await agent.exchange(forged), null, 'changing target MAC must invalidate relay signature');
+  const invalid = command(agent.key, agent.deviceId, { action: 'wake', targetMac: 'not-a-mac' });
+  assert.equal(await agent.exchange(invalid), null, 'malformed relay MAC must be ignored before action dispatch');
+  assert.doesNotMatch(agent.output(), /TEST_WAKE_RELAY/);
+  const request = command(agent.key, agent.deviceId, { action: 'wake', targetMac: '02:00:00:00:00:01' });
+  const reply = await agent.exchange(request, 3000);
+  assert.equal(reply.status, 'accepted');
+  assert.equal(reply.detailSignature, sign(agent.key, `ack-detail\n${request.requestId}\naccepted\n${reply.message}`));
+  assert.match(agent.output(), /TEST_WAKE_RELAY=02:00:00:00:00:01/);
+  assert.equal(await agent.exchange(request), null, 'relay replay must not send another magic packet');
+  const nonce = crypto.randomUUID();
+  assert.equal((await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000)).deviceId, agent.deviceId);
 });

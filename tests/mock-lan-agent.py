@@ -19,6 +19,7 @@ LOCK = threading.RLock()
 DEVICES = {}
 EVENTS = []
 DISCOVERY_COUNT = 0
+DISCOVERY_BY_ROOM = {}
 
 
 def reset():
@@ -27,6 +28,7 @@ def reset():
         DEVICES.clear()
         EVENTS.clear()
         DISCOVERY_COUNT = 0
+        DISCOVERY_BY_ROOM.clear()
         for index, room in enumerate(["A", "A", "B", "L"], 1):
             device_id = f"00000000-0000-4000-8000-{index:012d}"
             DEVICES[device_id] = {"id": device_id, "hostname": f"CI-{room}-{index:02d}", "room": room,
@@ -48,7 +50,7 @@ def snapshot():
     with LOCK:
         return {"devices": [{**{k: v for k, v in device.items() if k != "nonces"}, "uwf": uwf(device)}
                             for device in DEVICES.values()], "events": list(EVENTS),
-                "discoveryPackets": DISCOVERY_COUNT}
+                "discoveryPackets": DISCOVERY_COUNT, "discoveryByRoom": dict(DISCOVERY_BY_ROOM)}
 
 
 class Control(BaseHTTPRequestHandler):
@@ -95,11 +97,12 @@ def handle_request(udp, remote, data):
                     key = KEYS[device["room"]]
                     if not device["online"] or not hmac.compare_digest(message["signature"], sign(key, f"discover\n{nonce}")):
                         continue
+                    DISCOVERY_BY_ROOM[device["room"]] = DISCOVERY_BY_ROOM.get(device["room"], 0) + 1
                     response = {"type": "discovery", "requestNonce": nonce, "deviceId": device["id"],
-                                "hostname": device["hostname"], "mac": device["mac"], "agentVersion": "1.1.0",
-                                "uwf": uwf(device), "capabilities": "power,uwf"}
+                                "hostname": device["hostname"], "mac": device["mac"], "agentVersion": "1.2.0",
+                                "uwf": uwf(device), "capabilities": "power,uwf,wolrelay"}
                     response["signature"] = sign(key, f"discovery\n{nonce}\n{device['id']}\n{device['hostname']}\n{device['mac']}")
-                    response["stateSignature"] = sign(key, f"state\n{nonce}\n{device['id']}\n1.1.0\n{response['uwf']}\npower,uwf")
+                    response["stateSignature"] = sign(key, f"state\n{nonce}\n{device['id']}\n1.2.0\n{response['uwf']}\npower,uwf,wolrelay")
                     send(udp, remote, response)
                 return
             if message.get("type") != "command":
@@ -109,13 +112,15 @@ def handle_request(udp, remote, data):
                 return
             key = KEYS[device["room"]]
             canonical = f"command\n{message['requestId']}\n{device['id']}\n{message['action']}\n{message['timestamp']}\n{message['nonce']}"
+            if message.get("action") == "wake":
+                canonical += "\n" + message["targetMac"]
             if abs(time.time() - int(message["timestamp"])) > 120 or message["nonce"] in device["nonces"]:
                 return
             if not hmac.compare_digest(message["signature"], sign(key, canonical)):
                 return
             device["nonces"].add(message["nonce"])
             action = message["action"]
-            rejected = action in device["failActions"] or action not in {"freeze", "unfreeze", "shutdown", "restart"}
+            rejected = action in device["failActions"] or action not in {"freeze", "unfreeze", "shutdown", "restart", "wake"}
             status = "rejected" if rejected else "accepted"
             detail = "TEST_UWF_FAILURE" if rejected else "Power action accepted."
             if not rejected and action in {"freeze", "unfreeze"}:
@@ -125,7 +130,13 @@ def handle_request(udp, remote, data):
             response["signature"] = sign(key, f"ack\n{message['requestId']}\n{status}")
             response["detailSignature"] = sign(key, f"ack-detail\n{message['requestId']}\n{status}\n{detail}")
             send(udp, remote, response)
-            EVENTS.append({"deviceId": device["id"], "hostname": device["hostname"], "action": action, "status": status})
+            EVENTS.append({"deviceId": device["id"], "hostname": device["hostname"], "action": 'relay-request' if action == 'wake' else action, "status": status})
+            if not rejected and action == "wake":
+                for target in DEVICES.values():
+                    if target["mac"] == message.get("targetMac"):
+                        target["online"] = True
+                        EVENTS.append({"deviceId": target["id"], "hostname": target["hostname"], "relayDeviceId": device["id"],
+                                       "action": "wake-relay", "targetMac": target["mac"], "status": "accepted"})
             if not rejected and action == "shutdown":
                 device["online"] = False
             elif not rejected and action == "restart":

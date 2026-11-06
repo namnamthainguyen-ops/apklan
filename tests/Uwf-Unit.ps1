@@ -88,7 +88,7 @@ function Assert-Throws {
 
 Reset-Scenario -CurrentFilter $true -NextFilter $true -NextC $true
 Assert-Equal (Get-UwfState) 'OFF (next ON)' 'D: protection must not imply that C: is frozen.'
-Assert-Equal (Get-UwfCapabilities) 'power,uwf' 'Available UWF provider advertises support.'
+Assert-Equal (Get-UwfCapabilities) 'power,uwf,wolrelay' 'Available UWF provider advertises support and authenticated wake relay.'
 
 Reset-Scenario
 Assert-Equal (Get-UwfState) 'OFF (next OFF)' 'Read initial C: status.'
@@ -140,13 +140,13 @@ Assert-Throws { Invoke-UwfAction -Action freeze } 'UWF_VERIFY_FAILED'
 
 Reset-Scenario
 $script:ToolPresent = $false
-Assert-Equal (Get-UwfCapabilities) 'power' 'Missing UWF keeps power management available.'
+Assert-Equal (Get-UwfCapabilities) 'power,wolrelay' 'Missing UWF keeps power management and authenticated wake relay available.'
 Assert-Throws { Invoke-UwfAction -Action freeze } 'UWF_NOT_INSTALLED'
 Assert-Equal $script:Commands.Count 0 'Missing feature must not run any native command.'
 
 Reset-Scenario
 $script:QueryFails = $true
-Assert-Equal (Get-UwfCapabilities) 'power' 'Unavailable provider must not advertise trusted UWF support.'
+Assert-Equal (Get-UwfCapabilities) 'power,wolrelay' 'Unavailable provider must not advertise trusted UWF support.'
 Assert-Throws { Invoke-UwfAction -Action unfreeze } 'UWF_NOT_INSTALLED'
 
 Write-Output 'UWF_POLICY_UNIT_TEST=PASS (C-only, current/next, idempotency, overlay, failures; no real OS changes)'

@@ -10,8 +10,8 @@ android {
         applicationId 'com.lanpower.standalone'
         minSdk 26
         targetSdk 35
-        versionCode 4
-        versionName '1.1.1'
+        versionCode 5
+        versionName '1.2.0'
     }
 
     buildTypes {
@@ -31,4 +31,5 @@ android {
 
 dependencies {
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }

@@ -6,3 +6,8 @@ local.properties
 
 # Local pre-branding preview; not a published installer.
 /release/LanPowerClientSetup-1.1.0.exe
+
+# Update signing secrets must never be committed (public keys are intentional).
+**/*update-private*.xml
+**/*signing-private*.xml
+**/*.pfx

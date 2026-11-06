@@ -15,6 +15,7 @@ final class RoomModel {
     String key;
     long lastScan;
     String scanError = "";
+    String networkTargets = "";
 
     RoomModel(String id, String name, boolean legacy, String key) {
         if (id == null || id.isEmpty() || name == null || name.trim().isEmpty()) throw new IllegalArgumentException("Phòng không hợp lệ");
@@ -59,6 +60,11 @@ final class ManagedDevice {
     boolean stateAuthenticated;
     boolean online;
     long lastSeen;
+    long clientVersionCode;
+    String latestVersion = "unknown";
+    String updateStatus = "unknown";
+    String updateMessage = "Chưa xác thực thông tin cập nhật";
+    boolean updateAuthenticated;
 
     ManagedDevice(String id, String hostname, String ip, String mac) {
         this.id = id;
@@ -68,8 +74,12 @@ final class ManagedDevice {
     }
 
     boolean supportsUwf() {
+        return supports("uwf");
+    }
+
+    boolean supports(String name) {
         if (!stateAuthenticated) return false;
-        for (String capability : capabilities.split(",")) if ("uwf".equals(capability)) return true;
+        for (String capability : capabilities.split(",")) if (name.equals(capability)) return true;
         return false;
     }
 
@@ -95,6 +105,11 @@ final class ManagedDevice {
         value.stateAuthenticated = stateAuthenticated;
         value.online = online;
         value.lastSeen = lastSeen;
+        value.clientVersionCode = clientVersionCode;
+        value.latestVersion = latestVersion;
+        value.updateStatus = updateStatus;
+        value.updateMessage = updateMessage;
+        value.updateAuthenticated = updateAuthenticated;
         return value;
     }
 }

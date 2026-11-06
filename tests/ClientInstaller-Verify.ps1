@@ -6,7 +6,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $exePath = (Resolve-Path -LiteralPath $InstallerExe).Path
 $assembly = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($exePath))
 
-foreach ($payload in @('StandaloneAgent.ps1', 'Install-Core.ps1')) {
+foreach ($payload in @('StandaloneAgent.ps1', 'Install-Core.ps1', 'Update-Agent.ps1', 'Update-PublicKey.xml')) {
     $resources = @($assembly.GetManifestResourceNames() | Where-Object { $_.EndsWith($payload, [StringComparison]::OrdinalIgnoreCase) })
     if ($resources.Count -ne 1) { throw "Expected exactly one embedded payload resource for $payload." }
     $stream = $assembly.GetManifestResourceStream($resources[0])
@@ -45,6 +45,6 @@ function Invoke-VerificationCommand {
     finally { $process.Dispose() }
 }
 
-Invoke-VerificationCommand '--verify-payload' @('PAYLOAD_VERIFY=PASS', 'ROOM_KEY_KDF=PASS')
+Invoke-VerificationCommand '--verify-payload' @('PAYLOAD_VERIFY=PASS', 'ROOM_KEY_KDF=PASS', 'UPDATER_SHA256=', 'PUBLIC_KEY_SHA256=')
 Invoke-VerificationCommand '--verify-ui' @('UI_CONTRACT=PASS')
 Write-Output 'CLIENT_INSTALLER_VERIFICATION=PASS (embedded source hashes, KDF and in-process form contract; no installation)'

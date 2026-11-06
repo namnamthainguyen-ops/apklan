@@ -1,6 +1,6 @@
 {
   "name": "lan-power-standalone",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "private": true,
   "description": "Serverless Android Wake-on-LAN and authenticated shutdown manager for Windows IoT",
   "scripts": {

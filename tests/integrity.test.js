@@ -22,6 +22,15 @@ test('online installer pins the shared installation core', () => {
   assert.equal(pinned[1], sha256('client/Install-Core.ps1'));
 });
 
+test('online installer pins updater and offline trust key before installation', () => {
+  const installer = read('install-online.ps1');
+  for (const [name, file] of [['Updater', 'Update-Agent.ps1'], ['PublicKey', 'Update-PublicKey.xml']]) {
+    const match = installer.match(new RegExp(`\\$${name}Sha256 = '([A-F0-9]{64})'`));
+    assert.ok(match, `${name} needs an explicit hash pin`);
+    assert.equal(match[1], sha256(`client/${file}`));
+  }
+});
+
 test('documented online command pins the exact installer bytes', () => {
   const pinned = read('README.md').match(/\$expected = '([A-F0-9]{64})'/);
   assert.ok(pinned, 'README needs a verified download command');

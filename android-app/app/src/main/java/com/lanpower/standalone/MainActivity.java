@@ -5,8 +5,10 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.ClipData;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.Insets;
 import android.graphics.drawable.GradientDrawable;
 import android.net.wifi.WifiManager;
 import android.net.Uri;
@@ -14,13 +16,16 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -54,6 +59,10 @@ public final class MainActivity extends Activity {
     private SecureKeyStore keys;
     private RoomRepository repository;
     private LanTransport transport;
+    private AppUpdater updater;
+    private TextView updateStatus;
+    private Button installUpdate;
+    private boolean updatesDisabled;
     private LinearLayout content;
     private TextView title;
     private TextView status;
@@ -77,6 +86,7 @@ public final class MainActivity extends Activity {
         @Override public void run() {
             if (!visible || destroyed) return;
             if (!busy && openPrompts == 0 && !rooms.isEmpty()) refresh();
+            updater.check(false);
             handler.postDelayed(this, 20000);
         }
     };
@@ -87,8 +97,14 @@ public final class MainActivity extends Activity {
         repository = new RoomRepository(this, keys);
         // The opt-in fixture route is limited to debug builds on Android emulators.
         boolean emulator = Build.FINGERPRINT.contains("generic") || Build.MODEL.contains("sdk_gphone") || Build.HARDWARE.contains("ranchu") || Build.HARDWARE.contains("goldfish");
-        transport = new LanTransport(BuildConfig.DEBUG && emulator && getIntent().getBooleanExtra("lanpower_ci", false));
+        boolean ciFixture = BuildConfig.DEBUG && emulator && getIntent().getBooleanExtra("lanpower_ci", false);
+        updatesDisabled = BuildConfig.DEBUG && emulator && (ciFixture || getIntent().getBooleanExtra("disable_updates", false));
+        transport = new LanTransport(ciFixture);
         buildUi();
+        updater = new AppUpdater(this, (message, available) -> postResult(() -> {
+            updateStatus.setText(message);
+            installUpdate.setEnabled(available);
+        }), updatesDisabled);
         try {
             for (RoomModel room : repository.load()) rooms.put(room.id, room);
         } catch (Exception error) {
@@ -109,6 +125,7 @@ public final class MainActivity extends Activity {
         visible = true;
         handler.removeCallbacks(autoRefresh);
         handler.postDelayed(autoRefresh, 1200);
+        updater.check(false);
     }
 
     @Override protected void onPause() {
@@ -128,6 +145,7 @@ public final class MainActivity extends Activity {
         destroyed = true;
         handler.removeCallbacksAndMessages(null);
         transport.close();
+        updater.close();
         executor.shutdownNow();
         super.onDestroy();
     }
@@ -182,6 +200,22 @@ public final class MainActivity extends Activity {
         content.setPadding(dp(12), dp(6), dp(12), dp(24));
         scroll.addView(content, matchWrap());
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        LinearLayout updates = column();
+        updates.setPadding(dp(14), dp(5), dp(14), 0);
+        updateStatus = text("Room TN20 " + BuildConfig.VERSION_NAME + (updatesDisabled ? " • Kiểm thử: tạm tắt cập nhật" : " • Đang chờ kiểm tra bản mới"), 11, Color.DKGRAY);
+        updateStatus.setId(R.id.update_status);
+        updates.addView(updateStatus, matchWrap());
+        LinearLayout updateActions = row();
+        Button checkUpdate = button("Kiểm tra cập nhật", BLUE, R.id.update_check);
+        checkUpdate.setEnabled(!updatesDisabled);
+        checkUpdate.setOnClickListener(view -> updater.check(true));
+        installUpdate = button("Cài bản mới", GREEN, R.id.update_install);
+        installUpdate.setEnabled(false);
+        installUpdate.setOnClickListener(view -> installNewVersion());
+        updateActions.addView(checkUpdate, weighted());
+        updateActions.addView(installUpdate, weighted());
+        updates.addView(updateActions, matchWrap());
+        root.addView(updates, matchWrap());
         LinearLayout footer = row();
         footer.setPadding(dp(14), dp(7), dp(14), dp(7));
         footer.setBackgroundColor(Color.WHITE);
@@ -199,7 +233,37 @@ public final class MainActivity extends Activity {
         });
         footer.addView(website);
         root.addView(footer, matchWrap());
-        setContentView(root);
+        // Android 15 enforces edge-to-edge for target 35. Reserve the actual
+        // system-bar/cutout insets instead of guessing a fixed status-bar height.
+        FrameLayout safeArea = new FrameLayout(this);
+        safeArea.setBackgroundColor(NAVY);
+        safeArea.addView(root, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
+        else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(NAVY);
+        safeArea.setOnApplyWindowInsetsListener((view, insets) -> {
+            int left, top, right, bottom;
+            if (Build.VERSION.SDK_INT >= 30) {
+                Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                left = bars.left; top = bars.top; right = bars.right; bottom = bars.bottom;
+            } else {
+                left = insets.getSystemWindowInsetLeft(); top = insets.getSystemWindowInsetTop();
+                right = insets.getSystemWindowInsetRight(); bottom = insets.getSystemWindowInsetBottom();
+                if (Build.VERSION.SDK_INT >= 28 && insets.getDisplayCutout() != null) {
+                    left = Math.max(left, insets.getDisplayCutout().getSafeInsetLeft());
+                    top = Math.max(top, insets.getDisplayCutout().getSafeInsetTop());
+                    right = Math.max(right, insets.getDisplayCutout().getSafeInsetRight());
+                    bottom = Math.max(bottom, insets.getDisplayCutout().getSafeInsetBottom());
+                }
+            }
+            view.setPadding(left, top, right, bottom);
+            view.setContentDescription("safe-area:" + left + "," + top + "," + right + "," + bottom);
+            return insets;
+        });
+        setContentView(safeArea);
+        safeArea.requestApplyInsets();
     }
 
     private void render() {
@@ -259,6 +323,10 @@ public final class MainActivity extends Activity {
     private void renderRoom(RoomModel room) {
         selected.retainAll(room.devices.keySet());
         content.addView(text(roomCounts(room), 16, NAVY), matchWrap());
+        Button network = button("Mạng LAN/VPN", BLUE, R.id.network_settings);
+        network.setEnabled(!busy);
+        network.setOnClickListener(view -> editNetwork(room));
+        content.addView(network, matchWrap());
         if (!room.scanError.isEmpty()) content.addView(note("Lần quét thất bại, trạng thái hiện tại chưa xác định: " + room.scanError));
         CheckBox all = new CheckBox(this);
         selectAllBox = all;
@@ -314,9 +382,10 @@ public final class MainActivity extends Activity {
         LinearLayout info = card();
         info.addView(text("Hostname: " + device.hostname + "\nIP: " + device.ip + "\nMAC: " + device.mac + "\nTrạng thái: " + presence(room, device)
                 + "\nPhản hồi gần nhất: " + (device.lastSeen == 0 ? "Chưa biết" : DateFormat.getDateTimeInstance().format(new Date(device.lastSeen)))
-                + "\nUWF ổ C: " + device.uwfDescription() + "\nAgent: " + (device.stateAuthenticated ? device.agentVersion : "Bản cũ / chưa xác thực trạng thái"), 15, NAVY), matchWrap());
+                + "\nUWF ổ C: " + device.uwfDescription() + "\nAgent: " + (device.stateAuthenticated ? device.agentVersion : "Bản cũ / chưa xác thực trạng thái")
+                + "\nCập nhật Windows: " + (device.updateAuthenticated ? "Mã " + device.clientVersionCode + " • Mới nhất " + device.latestVersion + " • " + device.updateStatus + "\n" + device.updateMessage : "Chưa có thông tin đã xác thực"), 15, NAVY), matchWrap());
         content.addView(info);
-        if (!device.supportsUwf()) content.addView(note("Chưa xác thực được UWF. Nếu agent mới báo thiếu UWF: chạy client/Prepare-Uwf.ps1 một lần bằng Administrator, khởi động lại rồi quét. Agent cũ cần cập nhật."));
+        if (!device.supportsUwf()) content.addView(note("Chưa xác thực được UWF. Bộ cài client mới tự chuẩn bị UWF: cài hoặc cập nhật client rồi khởi động lại nếu được yêu cầu. Windows Home/Pro không hỗ trợ tính năng này."));
         content.addView(note("Đóng/bỏ đóng băng C: đặt trạng thái cho lần khởi động tiếp theo; app không tự khởi động lại máy. Xem Current/Next sau khi quét rồi tự chọn Khởi động lại khi sẵn sàng."));
         addActionButtons(content, room, device);
     }
@@ -355,7 +424,7 @@ public final class MainActivity extends Activity {
 
     private void confirmAction(RoomModel room, List<ManagedDevice> targets, String action) {
         if (busy || targets.isEmpty()) return;
-        String explanation = "wake".equals(action) ? "Magic Packet chỉ gửi yêu cầu bật; cần quét lại để xác nhận."
+        String explanation = "wake".equals(action) ? "Magic Packet chỉ gửi yêu cầu bật; cần quét lại để xác nhận. Qua VPN cần ít nhất một máy relay đang online trong LAN đích hoặc router hỗ trợ WOL."
                 : ("freeze".equals(action) || "unfreeze".equals(action)) ? "Thay đổi UWF C: có hiệu lực sau khi khởi động lại. App không tự khởi động lại máy."
                 : "Các máy Offline / chưa rõ trạng thái sẽ được bỏ qua. Hãy lưu công việc trước khi tắt hoặc khởi động lại.";
         showPrompt(new AlertDialog.Builder(this).setTitle(actionLabel(action) + " • " + targets.size() + " máy")
@@ -367,6 +436,10 @@ public final class MainActivity extends Activity {
         if (busy || destroyed) return;
         final String key = room.key;
         final boolean scanFailed = !room.scanError.isEmpty();
+        final boolean vpnRoom = !room.networkTargets.trim().isEmpty();
+        ManagedDevice eligibleRelay = null;
+        for (ManagedDevice candidate : room.devices.values()) if (candidate.online && !scanFailed && candidate.supports("wolrelay")) { eligibleRelay = candidate.copy(); break; }
+        final ManagedDevice relay = eligibleRelay;
         setBusy(true, "Đang " + actionLabel(action) + " cho " + targets.size() + " máy…");
         executor.execute(() -> {
             List<String> results = new ArrayList<>();
@@ -386,9 +459,20 @@ public final class MainActivity extends Activity {
                     }
                     if (!"wake".equals(action) && key.isEmpty()) throw new IllegalStateException("Không đọc được khóa mã hóa của phòng");
                     if (("freeze".equals(action) || "unfreeze".equals(action)) && !device.supportsUwf()) {
-                        throw new IllegalStateException("Chưa có UWF hoặc agent cũ. Cập nhật agent, chạy client/Prepare-Uwf.ps1 một lần bằng Administrator, khởi động lại rồi quét");
+                        throw new IllegalStateException("UWF chưa sẵn sàng hoặc agent cũ. Cài lại client mới để tự chuẩn bị UWF, khởi động lại nếu được yêu cầu rồi quét");
                     }
-                    String result = "wake".equals(action) ? transport.wake(device) : transport.command(key, device, action);
+                    String result;
+                    if ("wake".equals(action)) {
+                        String localResult = null;
+                        Exception localError = null;
+                        try { localResult = transport.wake(device); } catch (Exception error) { localError = error; }
+                        if (vpnRoom && relay != null && !key.isEmpty()) {
+                            result = "Relay " + relay.hostname + ": " + transport.relayWake(key, relay, device) + " • Cần quét lại để xác nhận máy đã bật";
+                        } else {
+                            if (localError != null) throw localError;
+                            result = localResult;
+                        }
+                    } else result = transport.command(key, device, action);
                     successes++;
                     results.add(device.hostname + ": OK — " + result);
                 } catch (Exception error) {
@@ -494,7 +578,10 @@ public final class MainActivity extends Activity {
                     if (destroyed) return;
                     try {
                         if (room.key.isEmpty()) throw new IllegalStateException("Không đọc được khóa mã hóa của phòng");
-                        found.put(room.id, transport.discover(room.key));
+                        Set<String> unicast = new LinkedHashSet<>(VpnTargets.expand(room.networkTargets));
+                        for (ManagedDevice saved : room.devices.values()) if (VpnTargets.isPrivateAddress(saved.ip)) unicast.add(saved.ip);
+                        if (unicast.size() > 1024) throw new IllegalArgumentException("Đích VPN và IP máy đã lưu vượt 1024 địa chỉ/phòng. Thu hẹp CIDR trong Mạng LAN/VPN");
+                        found.put(room.id, transport.discover(room.key, new ArrayList<>(unicast)));
                     } catch (Exception error) { failures.put(room.id, readable(error)); }
                 }
             } catch (Exception error) {
@@ -520,6 +607,60 @@ public final class MainActivity extends Activity {
         if (deviceId != null) deviceId = null;
         else { roomId = null; selected.clear(); }
         render();
+    }
+
+    private void editNetwork(RoomModel room) {
+        if (busy) return;
+        LinearLayout form = column();
+        form.setPadding(dp(20), dp(8), dp(20), 0);
+        EditText targets = new EditText(this);
+        targets.setId(R.id.network_targets_input);
+        targets.setMinLines(3);
+        targets.setHint("100.64.0.10\n192.168.10.0/24");
+        targets.setText(room.networkTargets);
+        targets.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        form.addView(targets, matchWrap());
+        form.addView(note("Để trống để chỉ quét LAN và IP máy đã lưu. Thêm IPv4 hoặc CIDR riêng/CGNAT qua VPN, phân cách bằng dòng, dấu phẩy hoặc khoảng trắng. CIDR /22–/32, tối đa 1024 đích/phòng. Điện thoại phải kết nối VPN và agent cho phép mạng VPN trong firewall."));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Mạng LAN/VPN • " + room.name).setView(form)
+                .setNegativeButton("Hủy", null).setPositiveButton("Lưu mạng", null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            String value = targets.getText().toString().trim();
+            try {
+                VpnTargets.expand(value);
+                String previous = room.networkTargets;
+                room.networkTargets = value;
+                try { repository.save(rooms.values()); }
+                catch (Exception error) { room.networkTargets = previous; throw error; }
+                dialog.dismiss();
+                statusMessage = "Đã lưu mạng LAN/VPN của " + room.name;
+                render();
+                refresh();
+            } catch (Exception error) { targets.setError(readable(error)); }
+        }));
+        showPrompt(dialog);
+    }
+
+    private void installNewVersion() {
+        if (updatesDisabled || busy || openPrompts > 0) return;
+        try {
+            updater.validateReady();
+            if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                updateStatus.setText("Bật quyền cài ứng dụng từ nguồn này trong Android, quay lại rồi chọn Cài bản mới.");
+                startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
+                return;
+            }
+            Intent pendingConfirmation = UpdateInstallReceiver.pendingUserAction;
+            if (pendingConfirmation != null) {
+                UpdateInstallReceiver.pendingUserAction = null;
+                startActivity(pendingConfirmation);
+                return;
+            }
+            Intent install = new Intent(Intent.ACTION_INSTALL_PACKAGE).setData(UpdateApkProvider.APK_URI)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            install.setClipData(ClipData.newRawUri("Room TN20 update", UpdateApkProvider.APK_URI));
+            startActivity(install);
+            updateStatus.setText("Android đang yêu cầu xác nhận cài đặt. Dữ liệu phòng được giữ khi cập nhật thành công.");
+        } catch (Exception error) { updateStatus.setText("Chưa mở được cài đặt: " + readable(error)); }
     }
 
     private String roomCounts(RoomModel room) {

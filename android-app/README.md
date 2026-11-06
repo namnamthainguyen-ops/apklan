@@ -1,6 +1,6 @@
 # Room TN20 Android
 
-**Room TN20 1.1.1**, thương hiệu **TN20** của **Công ty TNHH TN20**, quản lý nhiều phòng trực tiếp trong LAN, không dùng API hay máy chủ trung tâm. Website: [20.com.vn](https://20.com.vn). Link trong app chỉ mở khi người dùng chạm. Yêu cầu Android 8.0 (API 26) trở lên.
+**Room TN20 1.2.0**, thương hiệu **TN20** của **Công ty TNHH TN20**, quản lý nhiều phòng trực tiếp trong LAN hoặc VPN có định tuyến tới máy con, không dùng API hay máy chủ trung tâm. Website: [20.com.vn](https://20.com.vn). Link trong app chỉ mở khi người dùng chạm. Yêu cầu Android 8.0 (API 26) trở lên.
 
 Tên hiển thị và giao diện nhận thương hiệu mới; applicationId `com.lanpower.standalone`, vùng lưu dữ liệu và khóa mã hóa vẫn giữ nguyên để nâng cấp mà không mất phòng/máy đã lưu. Bản APK nâng cấp sử dụng cùng chứng thư ký với các bản trước.
 
@@ -10,10 +10,15 @@ Tên hiển thị và giao diện nhận thương hiệu mới; applicationId `c
 - Trang phòng hiển thị số máy online/offline. Chạm phòng để chọn từng máy/chọn tất cả và thao tác hàng loạt; chạm máy để xem hostname, IP, MAC, lần phản hồi gần nhất, trạng thái UWF C: và các nút điều khiển.
 - UDP `17840`: phát hiện agent và gửi lệnh `shutdown`/`restart`/`freeze`/`unfreeze` có HMAC-SHA256. Phòng chỉ nhận agent dùng cùng khóa dẫn xuất.
 - UDP `9`: gửi Wake-on-LAN Magic Packet trực tiếp.
+- Trong phòng, chọn **Mạng LAN/VPN** để lưu IPv4 hoặc CIDR riêng (`10/8`, `172.16/12`, `192.168/16`) hoặc CGNAT `100.64/10`; mỗi CIDR phải từ `/22` đến `/32`, tổng tối đa 1024 IP gồm các IP máy đã lưu. App quét broadcast LAN, IP máy đã lưu và các IP được cấu hình, không quét toàn bộ VPN hay địa chỉ Internet công cộng. Cần VPN định tuyến hoạt động và firewall agent cho phép đúng dải VPN.
+- Wake qua VPN sử dụng một agent **đang online trong cùng phòng** có trạng thái xác thực và capability `wolrelay`: app gửi lệnh `wake` ký HMAC, ràng buộc MAC máy đích; relay phát Magic Packet trong LAN đích. Khi không có relay, app báo rõ chỉ gửi broadcast cục bộ, không khẳng định máy từ xa đã bật. WOL vẫn cần BIOS/card mạng/nguồn điện phù hợp, và phải quét lại để xác nhận.
 - Quét tự động khoảng 20 giây khi app đang hiển thị, không quét chồng thao tác. Trong một phòng, máy đã lưu nhưng không phản hồi sau lần quét thành công được giữ lại và đánh dấu offline/chưa phản hồi; lỗi toàn bộ lần quét được hiển thị là chưa xác định, không tự kết luận tất cả máy đã tắt. Máy đang tắt chưa từng được lưu cần bật một lần để nhận MAC.
 - Mỗi thao tác đều xác nhận và báo kết quả riêng từng máy. Bật máy chỉ xác nhận đã gửi Magic Packet; các lệnh còn lại bỏ qua máy offline/chưa rõ trạng thái. UWF có timeout 30 giây mỗi máy để chờ lệnh và kiểm tra trạng thái.
-- `freeze`/`unfreeze` thay đổi bảo vệ C: cho lần khởi động tiếp theo, không tự restart. Trạng thái Current/Next và khả năng UWF chỉ được tin khi `stateSignature` hợp lệ. Agent cũ vẫn điều khiển nguồn được; máy chưa có UWF cần agent mới và chạy `client/Prepare-Uwf.ps1` một lần bằng Administrator rồi khởi động lại/quét. Chi tiết ACK chỉ được hiển thị là kết quả xác thực khi có `detailSignature` đúng.
+- `freeze`/`unfreeze` thay đổi bảo vệ C: cho lần khởi động tiếp theo, không tự restart. Trạng thái Current/Next và khả năng UWF chỉ được tin khi `stateSignature` hợp lệ. Agent cũ vẫn điều khiển nguồn được; bộ cài client mới tự chuẩn bị UWF, sau đó khởi động lại nếu được yêu cầu rồi quét lại. Chi tiết ACK chỉ được hiển thị là kết quả xác thực khi có `detailSignature` đúng.
 - Khi nâng cấp, Management Key Base64 và máy đã lưu từ bản cũ được chuyển sang **Phòng cũ**; dữ liệu nguồn cũ vẫn được giữ. Khóa cũ tiếp tục được mã hóa, không bắt buộc cài lại agent chỉ để nâng cấp app.
+- App tự kiểm tra manifest `updates/stable.json` khi mở và tối đa mỗi 6 giờ khi đang hiển thị, chạy riêng với quét LAN. Manifest RS256 được kiểm tra bằng khóa RSA3072 nhúng sẵn; APK tự tải chỉ từ đường HTTPS đúng repo, chặn redirect ra ngoài và giới hạn dung lượng. Trước khi cài, app kiểm tra SHA-256, package, versionCode tăng và chứng thư ký trùng ứng dụng hiện tại. Manifest cũ hơn phiên bản đã tin cậy bị từ chối.
+- Sau khi tải/xác minh, Android 12+ có thể cho tự cập nhật bằng PackageInstaller nếu nguồn cài đã được người dùng cho phép và các điều kiện hệ thống đáp ứng; app yêu cầu không cần tương tác nhưng tuân theo kết quả của Android. Nếu Android yêu cầu xác nhận, trạng thái hiển thị tại mục cập nhật và nút **Cài bản mới** mở xác nhận khi người dùng chọn; app không mở hộp thoại đè thao tác phòng. Android 8–11 dùng xác nhận cài hệ thống. Quyền cài từ nguồn này được cấp trong Settings sau khi người dùng bấm nút, không tự bật hay bỏ qua quyền.
+- Chi tiết máy hiển thị version/code và thông tin cập nhật Windows chỉ khi `updateSignature` hợp lệ; chọn Quét LAN để đọc lại. Thông tin ký HMAC không thay thế kiểm tra chữ ký RSA gói cập nhật của agent.
 
 Build bằng Android Studio hoặc Gradle 8.9 + JDK 17 + Android SDK Platform/Build Tools 35:
 
@@ -23,4 +28,4 @@ gradle testDebugUnitTest lintDebug assembleDebug
 
 APK debug được tạo tại `app/build/outputs/apk/debug/app-debug.apk`.
 
-JVM tests kiểm tra các vector KDF/HMAC độc lập, ràng buộc chữ ký, thao tác UWF, cấu trúc Magic Packet, phân tách phòng, giữ máy offline, chọn máy và khả năng UWF đã xác thực. CI còn có fixture UDP để chạy UI trên emulator. Chỉ bản debug trên emulator có thể bật fixture bằng intent `--ez lanpower_ci true`; khi bật, app thêm đích `10.0.2.2` để liên lạc fixture trên máy host. Điện thoại thật và bản release không sử dụng đường kiểm thử này.
+JVM tests kiểm tra các vector KDF/HMAC độc lập, ràng buộc chữ ký/relay MAC/update metadata, thao tác UWF, Magic Packet, phân tách phòng, VPN IPv4/CIDR/giới hạn quét, RS256 manifest/tamper/wrong-key/rollback/allowlist. CI còn có fixture UDP để chạy UI trên emulator. Chỉ bản debug trên emulator có thể bật fixture bằng intent `--ez lanpower_ci true`; khi bật, app thêm đích `10.0.2.2` để liên lạc fixture trên máy host và tắt cập nhật mạng. `--ez disable_updates true` tắt riêng cập nhật trên debug/emulator để kiểm thử unicast VPN thật mà không thêm đường fixture. Điện thoại thật và bản release bỏ qua các cờ kiểm thử này.

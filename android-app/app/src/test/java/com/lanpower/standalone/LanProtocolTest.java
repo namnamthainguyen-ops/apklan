@@ -9,6 +9,27 @@ import static org.junit.Assert.*;
 public final class LanProtocolTest {
     private static final String KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 
+    @Test public void relayWakeBindsTargetMacSeparatelyFromRelayId() throws Exception {
+        String first = LanProtocol.wakeCanonical("request", "relay", 1, "nonce", "00:11:22:AA:BB:CC");
+        assertEquals("command\nrequest\nrelay\nwake\n1\nnonce\n00:11:22:AA:BB:CC", first);
+        String signature = LanProtocol.hmac(KEY, first);
+        assertFalse(LanProtocol.verify(KEY, LanProtocol.wakeCanonical("request", "relay", 1, "nonce", "00:11:22:AA:BB:CD"), signature));
+        assertFalse(LanProtocol.verify(KEY, LanProtocol.wakeCanonical("request", "other-relay", 1, "nonce", "00:11:22:AA:BB:CC"), signature));
+        assertEquals("00:11:22:AA:BB:CC", LanProtocol.normalizeMac("001122aabbcc"));
+        assertThrows(IllegalArgumentException.class, () -> LanProtocol.wakeCanonical("request", "relay", 1, "nonce", "00:11:22:aa:bb:cc"));
+    }
+
+    @Test public void updateStatusSignatureBindsAllDisplayedFields() throws Exception {
+        String canonical = LanProtocol.updateCanonical("nonce", "device", 5, "1.2.0", "ready", "Verified update");
+        String signature = LanProtocol.hmac(KEY, canonical);
+        assertTrue(LanProtocol.verify(KEY, canonical, signature));
+        assertFalse(LanProtocol.verify(KEY, LanProtocol.updateCanonical("other", "device", 5, "1.2.0", "ready", "Verified update"), signature));
+        assertFalse(LanProtocol.verify(KEY, LanProtocol.updateCanonical("nonce", "device", 6, "1.2.0", "ready", "Verified update"), signature));
+        assertFalse(LanProtocol.verify(KEY, LanProtocol.updateCanonical("nonce", "device", 5, "1.3.0", "ready", "Verified update"), signature));
+        assertFalse(LanProtocol.verify(KEY, LanProtocol.updateCanonical("nonce", "device", 5, "1.2.0", "failed", "Verified update"), signature));
+        assertFalse(LanProtocol.verify(KEY, LanProtocol.updateCanonical("nonce", "device", 5, "1.2.0", "ready", "Forged update"), signature));
+    }
+
     @Test public void roomKeysMatchIndependentNodeAndWindowsVectors() throws Exception {
         assertEquals("VUnd9gqHWPnL3YsvZF69DuCPHFp4YrHzQbv+TVHKsuc=", LanProtocol.deriveRoomKey("ROOM0001"));
         assertEquals("kLU0qzCKD7iBFMKXa8010x45Me8b/xIbLo/XH+co4yw=", LanProtocol.deriveRoomKey("ROOM0002"));

@@ -1,4 +1,9 @@
 <resources>
+    <item name="network_settings" type="id" />
+    <item name="network_targets_input" type="id" />
+    <item name="update_status" type="id" />
+    <item name="update_check" type="id" />
+    <item name="update_install" type="id" />
     <item name="add_room" type="id" />
     <item name="refresh" type="id" />
     <item name="back" type="id" />

@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.1.1'
+$AgentVersion = '1.2.0'
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -96,8 +96,58 @@ function Get-UwfState {
 
 function Get-UwfCapabilities {
     [void](Get-UwfState)
-    if ($script:UwfAvailable) { return 'power,uwf' }
-    return 'power'
+    if ($script:UwfAvailable) { return 'power,uwf,wolrelay' }
+    return 'power,wolrelay'
+}
+
+function Invoke-WakeRelay {
+    param([string]$Mac)
+    if ($Mac -cnotmatch '\A(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\z') { throw 'Invalid target MAC.' }
+    $macBytes = @($Mac.Split(':') | ForEach-Object { [Convert]::ToByte($_, 16) })
+    $packet = New-Object byte[] 102
+    for ($index = 0; $index -lt 6; $index++) { $packet[$index] = 255 }
+    for ($index = 6; $index -lt 102; $index++) { $packet[$index] = $macBytes[($index - 6) % 6] }
+    $broadcasts = @('255.255.255.255')
+    foreach ($adapter in [Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+        if ($adapter.OperationalStatus -ne [Net.NetworkInformation.OperationalStatus]::Up -or
+            $adapter.NetworkInterfaceType -notin @([Net.NetworkInformation.NetworkInterfaceType]::Ethernet, [Net.NetworkInformation.NetworkInterfaceType]::Wireless80211)) { continue }
+        foreach ($unicast in $adapter.GetIPProperties().UnicastAddresses) {
+            if ($unicast.Address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or -not $unicast.IPv4Mask) { continue }
+            $address = $unicast.Address.GetAddressBytes()
+            $mask = $unicast.IPv4Mask.GetAddressBytes()
+            $broadcast = New-Object byte[] 4
+            for ($index = 0; $index -lt 4; $index++) { $broadcast[$index] = $address[$index] -bor (255 -bxor $mask[$index]) }
+            $value = ([Net.IPAddress]::new($broadcast)).ToString()
+            if ($value -notin $broadcasts) { $broadcasts += $value }
+        }
+    }
+    $sent = 0
+    $sender = [Net.Sockets.UdpClient]::new()
+    try {
+        $sender.EnableBroadcast = $true
+        foreach ($broadcast in $broadcasts) {
+            try { [void]$sender.Send($packet, $packet.Length, $broadcast, 9); $sent++ } catch { }
+        }
+    }
+    finally { $sender.Dispose() }
+    if ($sent -eq 0) { throw 'Wake relay could not send any local broadcast packet.' }
+    return "Wake packet relayed for $Mac. Packet delivery does not confirm the target booted."
+}
+
+function Get-AgentUpdateStatus {
+    $result = @{ latestVersion = 'unknown'; status = 'unknown'; message = 'The updater has not checked yet.' }
+    $path = Join-Path $AgentRoot 'update-status.json'
+    try {
+        if (Test-Path -LiteralPath $path) {
+            $status = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            if ($status.status -in @('current', 'available', 'updating', 'blocked-uwf', 'error', 'disabled', 'unknown')) {
+                $result.latestVersion = [string]$status.latestVersion
+                $result.status = [string]$status.status
+                $result.message = [string]$status.message
+            }
+        }
+    } catch { }
+    return $result
 }
 
 function Invoke-UwfCommand {
@@ -112,14 +162,14 @@ function Invoke-UwfAction {
     param([ValidateSet('freeze', 'unfreeze')][string]$Action)
     $uwf = Join-Path $env:WINDIR 'System32\uwfmgr.exe'
     if (-not (Test-Path -LiteralPath $uwf)) {
-        throw 'UWF_NOT_INSTALLED: Run client/Prepare-Uwf.ps1 as Administrator, then restart manually.'
+        throw 'UWF_NOT_INSTALLED: Reinstall the current Room TN20 client to prepare UWF automatically, then restart if requested.'
     }
     try {
         $filter = Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Filter -ErrorAction Stop
         $volumes = @(Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Volume -ErrorAction Stop |
             Where-Object { $_.DriveLetter -in @('C:', 'C') })
     }
-    catch { throw 'UWF_NOT_INSTALLED: UWF management provider is unavailable. Prepare the feature and restart manually.' }
+    catch { throw 'UWF_NOT_INSTALLED: Reinstall the current Room TN20 client to prepare its Windows feature, then restart if requested.' }
     $nextProtected = @($volumes | Where-Object { -not $_.CurrentSession -and $_.Protected }).Count -gt 0
     if ($Action -eq 'freeze') {
         # Preserve an administrator's existing overlay policy. Initialize only an
@@ -231,6 +281,8 @@ try {
                     $uwfState = Get-UwfState
                     $capabilities = Get-UwfCapabilities
                     $stateSignature = Get-HmacBase64 $config.managementKey "state`n$($message.nonce)`n$($config.deviceId)`n$AgentVersion`n$uwfState`n$capabilities"
+                    $update = Get-AgentUpdateStatus
+                    $updateSignature = Get-HmacBase64 $config.managementKey "update`n$($message.nonce)`n$($config.deviceId)`n5`n$($update.latestVersion)`n$($update.status)`n$($update.message)"
                     Send-JsonDatagram -Client $udp -Remote $remote -Value ([ordered]@{
                         type = 'discovery'
                         requestNonce = $message.nonce
@@ -241,6 +293,11 @@ try {
                         uwf = $uwfState
                         capabilities = $capabilities
                         stateSignature = $stateSignature
+                        clientVersionCode = 5
+                        latestVersion = $update.latestVersion
+                        updateStatus = $update.status
+                        updateMessage = $update.message
+                        updateSignature = $updateSignature
                         signature = $responseSignature
                     })
                     continue
@@ -259,17 +316,22 @@ try {
                 if ($usedNonces.ContainsKey([string]$message.nonce)) { continue }
 
                 $canonical = "command`n$($message.requestId)`n$($message.deviceId)`n$($message.action)`n$timestamp`n$($message.nonce)"
+                if ($message.action -eq 'wake') {
+                    if (-not $message.PSObject.Properties['targetMac'] -or [string]$message.targetMac -cnotmatch '\A(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\z') { continue }
+                    $canonical += "`n$($message.targetMac)"
+                }
                 $expected = Get-HmacBase64 $config.managementKey $canonical
                 if (-not (Test-FixedTimeEqual $message.signature $expected)) { continue }
                 $usedNonces[[string]$message.nonce] = $now
 
-                if ($message.action -notin @('shutdown', 'restart', 'freeze', 'unfreeze')) {
+                if ($message.action -notin @('shutdown', 'restart', 'freeze', 'unfreeze', 'wake')) {
                     Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'rejected' -Message 'Unsupported action.'
                     continue
                 }
-                if ($message.action -in @('freeze', 'unfreeze')) {
+                if ($message.action -in @('freeze', 'unfreeze', 'wake')) {
                     try {
-                        $result = Invoke-UwfAction -Action $message.action
+                        $result = if ($message.action -eq 'wake') { Invoke-WakeRelay -Mac $message.targetMac }
+                            else { Invoke-UwfAction -Action $message.action }
                         Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'accepted' -Message $result
                     }
                     catch {

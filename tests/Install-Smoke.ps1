@@ -51,6 +51,8 @@ function Test-AgentDiscovery {
             Assert-True ($reply.signature -ceq $expected) 'Discovery signature must match.'
             $stateSignature = Get-TestHmac $Key "state`n$nonce`n$($reply.deviceId)`n$($reply.agentVersion)`n$($reply.uwf)`n$($reply.capabilities)"
             Assert-True ($reply.stateSignature -ceq $stateSignature) 'UWF state and capabilities must be authenticated.'
+            $updateSignature = Get-TestHmac $Key "update`n$nonce`n$($reply.deviceId)`n$($reply.clientVersionCode)`n$($reply.latestVersion)`n$($reply.updateStatus)`n$($reply.updateMessage)"
+            Assert-True ($reply.updateSignature -ceq $updateSignature) 'Client update state must be authenticated.'
             return
         }
         catch [Net.Sockets.SocketException] { Start-Sleep -Milliseconds 250 }
@@ -62,8 +64,8 @@ function Test-AgentDiscovery {
 function Invoke-OfflineTestInstall {
     param([switch]$LegacyManagementKey)
     if (-not $InstallerExe) {
-        if ($LegacyManagementKey) { & $offlineInstaller -ManagementKey $key -InstallPath $installPath -TaskName $taskName -Port $port }
-        else { & $offlineInstaller -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port }
+        if ($LegacyManagementKey) { & $offlineInstaller -ManagementKey $key -InstallPath $installPath -TaskName $taskName -Port $port -SkipUwfPreparation }
+        else { & $offlineInstaller -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port -SkipUwfPreparation }
         return
     }
     $info = [Diagnostics.ProcessStartInfo]::new()
@@ -96,6 +98,7 @@ function Invoke-OfflineTestInstall {
 $testId = [Guid]::NewGuid().ToString('N')
 $installPath = Join-Path $env:TEMP "LanPowerSmoke-$testId"
 $taskName = "LanPowerSmoke-$testId"
+$updateTaskName = $taskName + 'Updater'
 $portProbe = [Net.Sockets.UdpClient]::new(0)
 $port = ([Net.IPEndPoint]$portProbe.Client.LocalEndPoint).Port
 $portProbe.Dispose()
@@ -132,12 +135,20 @@ try {
     Invoke-OfflineTestInstall
     $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
     Assert-True ($config.managementKey -ceq $key) 'Installer stores the derived room key.'
+    Assert-True ([int]$config.versionCode -eq 5 -and $config.version -eq '1.2.0') 'Installer records the signed-update client version.'
+    Assert-True ($config.updateTaskName -eq $updateTaskName -and $config.agentTaskName -eq $taskName) 'Installer records both dedicated task names.'
+    Assert-True (@($config.vpnNetworks).Count -eq 0) 'Default installation has no implicit remote VPN trust.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw) -notmatch $roomKey) 'Plain room key is not persisted.'
     $deviceId = $config.deviceId
     $task = Get-ScheduledTask -TaskName $taskName
     Assert-True ($task.Principal.UserId -in @('SYSTEM', 'S-1-5-18')) 'Agent task must run as SYSTEM.'
     Assert-True ($task.Settings.ExecutionTimeLimit -eq 'PT0S') 'Agent task must have no execution time limit.'
     Assert-True ($task.Actions[0].Execute -like '*WindowsPowerShell*v1.0*powershell.exe') 'Task uses an absolute Windows PowerShell path.'
+    $updateTask = Get-ScheduledTask -TaskName $updateTaskName
+    Assert-True ($updateTask.Principal.UserId -in @('SYSTEM', 'S-1-5-18')) 'Signed updater must run as SYSTEM.'
+    Assert-True ($updateTask.Actions[0].Arguments -like '*Update-Agent.ps1*') 'Updater task runs the installed updater script.'
+    Assert-True (@($updateTask.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' }).Count -eq 1) 'Updater has one boot trigger.'
+    Assert-True (@($updateTask.Triggers | Where-Object { $_.Repetition -and $_.Repetition.Interval -eq 'PT6H' }).Count -eq 1) 'Updater checks every six hours.'
     $rule = Get-NetFirewallRule -DisplayName $ruleName
     Assert-True ($rule.Action -eq 'Allow' -and $rule.Direction -eq 'Inbound') 'Agent firewall rule is inbound allow.'
     $address = $rule | Get-NetFirewallAddressFilter
@@ -145,13 +156,25 @@ try {
     Assert-SecureAcl $installPath
     Assert-SecureAcl (Join-Path $installPath 'config.json')
     Assert-SecureAcl (Join-Path $installPath 'StandaloneAgent.ps1')
+    foreach ($payload in @('Install-Core.ps1', 'Update-Agent.ps1', 'Update-PublicKey.xml')) {
+        $installedPayload = Join-Path $installPath $payload
+        Assert-SecureAcl $installedPayload
+        Assert-True ((Get-FileHash -LiteralPath $installedPayload -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath (Join-Path $repoRoot "client\$payload") -Algorithm SHA256).Hash) "Installed update payload matches source: $payload"
+    }
     Test-AgentDiscovery $port $key $deviceId
+    # The shared installer core must preserve a previously authorized VPN scope.
+    # Changing this dedicated test config is safe on the disposable CI runner.
+    $config.vpnNetworks = @('100.64.10.0/24')
+    $config | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $installPath 'config.json') -Encoding ASCII
     Invoke-OfflineTestInstall -LegacyManagementKey
     $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
     Assert-True ($config.deviceId -eq $deviceId) 'Reinstall preserves the saved Android device ID.'
+    Assert-True ($config.managementKey -ceq $key -and @($config.vpnNetworks).Count -eq 1 -and $config.vpnNetworks[0] -eq '100.64.10.0/24') 'Reinstall preserves the room key and explicit VPN scope.'
+    $reinstalledAddress = Get-NetFirewallRule -DisplayName $ruleName | Get-NetFirewallAddressFilter
+    Assert-True ('100.64.10.0/255.255.255.0' -in $reinstalledAddress.RemoteAddress -or '100.64.10.0/24' -in $reinstalledAddress.RemoteAddress) 'Reinstall applies only the saved explicit VPN network.'
     Test-AgentDiscovery $port $key $deviceId
     if ($IncludeOnline) {
-        & (Join-Path $repoRoot 'install-online.ps1') -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port
+        & (Join-Path $repoRoot 'install-online.ps1') -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port -SkipUwfPreparation
         $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
         Assert-True ($config.deviceId -eq $deviceId) 'Online reinstall preserves device ID.'
         Assert-SecureAcl $installPath
@@ -160,6 +183,7 @@ try {
     & $uninstaller -InstallPath $installPath -TaskName $taskName -Confirm:$false
     Assert-True (-not (Test-Path -LiteralPath $installPath)) 'Uninstall removes the dedicated installation directory.'
     Assert-True (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 'Uninstall removes the task.'
+    Assert-True (-not (Get-ScheduledTask -TaskName $updateTaskName -ErrorAction SilentlyContinue)) 'Uninstall removes the updater task.'
     Assert-True (-not (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue)) 'Uninstall removes the firewall rule.'
     $mode = if ($InstallerExe) { 'single EXE + stdin room key' } else { 'PowerShell + legacy reinstall' }
     Write-Output "INSTALLATION_SMOKE_TEST=PASS ($mode, ACL, SYSTEM task, firewall, authenticated state, stable reinstall, uninstall)"
@@ -167,6 +191,8 @@ try {
 finally {
     Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+    Stop-ScheduledTask -TaskName $updateTaskName -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $updateTaskName -Confirm:$false -ErrorAction SilentlyContinue
     Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     if (Test-Path -LiteralPath $installPath) {
         $resolved = Resolve-TestCleanupPath -ActualPath $installPath -ExpectedPath (Join-Path $env:TEMP "LanPowerSmoke-$testId")

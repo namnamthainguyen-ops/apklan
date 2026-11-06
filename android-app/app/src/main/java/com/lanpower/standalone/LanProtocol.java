@@ -86,6 +86,30 @@ final class LanProtocol {
         return verify(key, "ack-detail\n" + requestId + "\n" + status + "\n" + message, signature);
     }
 
+    static String wakeCanonical(String requestId, String relayId, long timestamp, String nonce, String targetMac) {
+        requireField(requestId);
+        requireField(relayId);
+        requireField(nonce);
+        magicPacket(targetMac);
+        if (!targetMac.matches("([0-9A-F]{2}:){5}[0-9A-F]{2}")) throw new IllegalArgumentException("Relay MAC must use uppercase colon format");
+        return "command\n" + requestId + "\n" + relayId + "\nwake\n" + timestamp + "\n" + nonce + "\n" + targetMac;
+    }
+
+    static String updateCanonical(String nonce, String deviceId, long clientCode, String latest, String status, String message) {
+        requireField(nonce);
+        requireField(deviceId);
+        requireField(latest);
+        requireField(status);
+        if (clientCode < 0 || message == null || message.length() > 2048) throw new IllegalArgumentException("Invalid update metadata");
+        return "update\n" + nonce + "\n" + deviceId + "\n" + clientCode + "\n" + latest + "\n" + status + "\n" + message;
+    }
+
+    static String normalizeMac(String value) {
+        magicPacket(value);
+        String hex = value.replace(":", "").replace("-", "").toUpperCase(java.util.Locale.ROOT);
+        return hex.substring(0, 2) + ":" + hex.substring(2, 4) + ":" + hex.substring(4, 6) + ":" + hex.substring(6, 8) + ":" + hex.substring(8, 10) + ":" + hex.substring(10, 12);
+    }
+
     static byte[] magicPacket(String mac) {
         if (mac == null || !mac.matches("(?i)([0-9a-f]{12}|([0-9a-f]{2}:){5}[0-9a-f]{2}|([0-9a-f]{2}-){5}[0-9a-f]{2})")) {
             throw new IllegalArgumentException("MAC không hợp lệ");
