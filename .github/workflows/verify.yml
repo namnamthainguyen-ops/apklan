@@ -38,6 +38,9 @@ jobs:
         run: ./tests/Server-PowerOnly.ps1
       - name: Room-key derivation, authenticated state and UDP power/UWF integration tests
         run: node --test --test-concurrency=1 tests/*.test.js
+      - name: Actual TLS image transfer, safe retry and corruption rejection
+        shell: powershell
+        run: ./tests/Media-Transfer-Smoke.ps1
       - name: Install, verify SYSTEM task and firewall, reinstall, uninstall
         shell: powershell
         run: |
