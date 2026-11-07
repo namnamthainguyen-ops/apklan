@@ -17,7 +17,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
-[assembly: System.Reflection.AssemblyVersion("1.3.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.3.1.0")]
 [assembly: TargetFramework(".NETFramework,Version=v4.7.2")]
 
 namespace RoomTN20.Runtime
@@ -360,7 +360,7 @@ namespace RoomTN20.Runtime
                             nonces[nonce] = now;
                         }
                         Dictionary<string, object> playlist = upload.Playlist;
-                        acquired = Monitor.TryEnter(uploadGate);
+                        acquired = Monitor.TryEnter(uploadGate, 5000);
                         if (!acquired) throw new InvalidOperationException("MEDIA_UPLOAD_BUSY");
                         string mediaRoot = Path.Combine(root, "Media");
                         DataFiles.RejectReparse(mediaRoot);

@@ -1,0 +1,16 @@
+name: Verify actual media receiver
+on:
+  push:
+    branches: [ci/media-receiver-1.3.1]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  receiver:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Actual TLS PNG transfer and real SYSTEM agent receiver readiness
+        shell: powershell
+        run: ./tests/Media-Transfer-Smoke.ps1

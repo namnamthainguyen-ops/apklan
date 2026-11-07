@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.3.0'
-$AgentVersionCode = 10
+$AgentVersion = '1.3.1'
+$AgentVersionCode = 11
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -17,6 +17,9 @@ $script:UwfState = 'unknown'
 $script:UwfAvailable = $false
 $script:LastUwfCheck = [DateTime]::MinValue
 $script:DisplayRuntime = $null
+$script:RuntimeStatus = 'not-configured'
+$script:RuntimeMessage = 'Media data on D: has not been prepared. Reinstall the current client with D: available and unprotected.'
+$script:RuntimeLastTry = [DateTime]::MinValue
 
 function Write-DebugLog {
     param([string]$Message)
@@ -25,7 +28,14 @@ function Write-DebugLog {
 
 function Initialize-LanPowerRuntime {
     param([pscustomobject]$Config)
-    if (-not $Config.PSObject.Properties['runtimeDataRoot'] -or -not [string]$Config.runtimeDataRoot) { return }
+    $script:RuntimeLastTry = [DateTime]::UtcNow
+    if (-not $Config.PSObject.Properties['runtimeDataRoot'] -or -not [string]$Config.runtimeDataRoot) {
+        if ($Config.PSObject.Properties['runtimeSetupMessage'] -and [string]$Config.runtimeSetupMessage) {
+            $detail = ([string]$Config.runtimeSetupMessage).Replace([string]$Config.managementKey, '[hidden]') -replace '[\r\n\x00]', ' '
+            $script:RuntimeMessage = if ($detail.Length -gt 256) { $detail.Substring(0, 256) } else { $detail }
+        }
+        return
+    }
     try {
         $library = Join-Path $AgentRoot 'RoomTN20.Runtime.dll'
         $certificate = Join-Path $AgentRoot 'media-certificate.pfx'
@@ -34,8 +44,16 @@ function Initialize-LanPowerRuntime {
         [void][Reflection.Assembly]::LoadFrom($library)
         $runtimePort = if ($Config.PSObject.Properties['runtimePort']) { [int]$Config.runtimePort } else { 17842 }
         $script:DisplayRuntime = [RoomTN20.Runtime.Controller]::Start([string]$Config.runtimeDataRoot, [string]$Config.managementKey, [string]$Config.deviceId, $runtimePort, $certificate, $player)
+        $script:RuntimeStatus = 'ready'
+        $script:RuntimeMessage = 'Media receiver is ready.'
     }
-    catch { Write-DebugLog ('Display/media runtime unavailable: ' + $_.Exception.Message); $script:DisplayRuntime = $null }
+    catch {
+        $script:RuntimeStatus = 'error'
+        $detail = $_.Exception.GetBaseException().Message.Replace([string]$Config.managementKey, '[hidden]') -replace '[\r\n\x00]', ' '
+        $script:RuntimeMessage = if ($detail.Length -gt 256) { $detail.Substring(0, 256) } else { $detail }
+        Write-DebugLog ('Display/media runtime unavailable: ' + $script:RuntimeMessage)
+        $script:DisplayRuntime = $null
+    }
 }
 
 function Get-LanPowerRuntimeSnapshot {
@@ -318,6 +336,7 @@ try {
                         continue
                     }
                     $responseSignature = Get-HmacBase64 $config.managementKey "discovery`n$($message.nonce)`n$($config.deviceId)`n$hostname`n$mac"
+                    if (-not $script:DisplayRuntime -and ([DateTime]::UtcNow - $script:RuntimeLastTry).TotalSeconds -ge 30) { Initialize-LanPowerRuntime -Config $config }
                     $uwfState = Get-UwfState
                     $capabilities = Get-UwfCapabilities
                     $display = Get-LanPowerRuntimeSnapshot
@@ -326,6 +345,7 @@ try {
                     $update = Get-AgentUpdateStatus
                     $updateSignature = Get-HmacBase64 $config.managementKey "update`n$($message.nonce)`n$($config.deviceId)`n$AgentVersionCode`n$($update.latestVersion)`n$($update.status)`n$($update.message)"
                     $lockSignature = Get-HmacBase64 $config.managementKey "lockstate`n$($message.nonce)`n$($config.deviceId)`n$($display.lockState)`n$($display.mediaVersion)`n$($display.mediaPort)`n$($display.mediaCertSha256)"
+                    $runtimeSignature = Get-HmacBase64 $config.managementKey "runtime`n$($message.nonce)`n$($config.deviceId)`n$script:RuntimeStatus`n$script:RuntimeMessage"
                     Send-JsonDatagram -Client $udp -Remote $remote -Value ([ordered]@{
                         type = 'discovery'
                         requestNonce = $message.nonce
@@ -335,6 +355,9 @@ try {
                         agentVersion = $AgentVersion
                         uwf = $uwfState
                         capabilities = $capabilities
+                        runtimeStatus = $script:RuntimeStatus
+                        runtimeMessage = $script:RuntimeMessage
+                        runtimeSignature = $runtimeSignature
                         stateSignature = $stateSignature
                         clientVersionCode = $AgentVersionCode
                         latestVersion = $update.latestVersion

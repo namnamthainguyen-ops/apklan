@@ -17,7 +17,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Screen = System.Windows.Forms.Screen;
 
-[assembly: System.Reflection.AssemblyVersion("1.3.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.3.1.0")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20 Display")]
 [assembly: TargetFramework(".NETFramework,Version=v4.7.2")]

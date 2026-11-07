@@ -354,9 +354,9 @@ function Resolve-LanPowerRuntimePayload {
     param([string]$Source, [string]$PayloadRoot, [ValidateSet('runtime','player')][string]$Kind)
     # These pins also let the older, three-script updater install the new signed
     # core without accepting unsigned sidecars or changing its trust key.
-    $fileName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime-1.3.0.dll' } else { 'RoomTN20.Player-1.3.0.exe' }
+    $fileName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime-1.3.1.dll' } else { 'RoomTN20.Player-1.3.1.exe' }
     $installedName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime.dll' } else { 'RoomTN20.Player.exe' }
-    $expectedHash = if ($Kind -eq 'runtime') { '849A8D7DEF1CE36B5543DE07996FB8BF0E53AF555D07A36FA8779D730140178C' } else { '0C37A28B3475127CB51FD8725B3B4E5ADF1C64263EC3CCFA538F8551527CA887' }
+    $expectedHash = if ($Kind -eq 'runtime') { '74FD51F2FCBE72094C8E97FC3C3B6DAC27C2E5386CDF2D852C354BB44DA9E01F' } else { '74ED979DF512E0943CF62D51A1B838989F1E45D11E80F30A28922BBAEF36A054' }
     if (-not $Source) {
         $sourceTreeFile = Join-Path (Split-Path -Parent $PayloadRoot) ('release\' + $fileName)
         $extractedFile = Join-Path $PayloadRoot $installedName
@@ -503,7 +503,8 @@ function Test-LanPowerHandshakeSignature {
 
 function Wait-LanPowerInstalledAgent {
     param([string]$InstallPath, [string]$RoomKey, [int]$Port = 17840,
-        [string]$ExpectedVersion = '1.3.0', [int]$ExpectedVersionCode = 10,
+        [string]$ExpectedVersion = '1.3.1', [int]$ExpectedVersionCode = 11,
+        [switch]$RequireMedia,
         [ValidateRange(1, 60)][int]$TimeoutSeconds = 20, [string]$ManagementKey)
     if ($RoomKey) { $ManagementKey = ConvertTo-LanPowerManagementKey $RoomKey }
     try {
@@ -519,6 +520,7 @@ function Wait-LanPowerInstalledAgent {
     catch { throw 'CLIENT_CONFIG_VERIFY_FAILED: Khong xac minh duoc cau hinh client vua cai. Hay chay lai bo cai.' }
     $socket = [Net.Sockets.UdpClient]::new()
     $watch = [Diagnostics.Stopwatch]::StartNew()
+    $mediaProblem = 'The client has not confirmed its media receiver.'
     try {
         $socket.Connect('127.0.0.1', $Port)
         $socket.Client.ReceiveTimeout = 500
@@ -537,11 +539,18 @@ function Wait-LanPowerInstalledAgent {
                 if ($reply.agentVersion -cne $ExpectedVersion -or [int]$reply.clientVersionCode -ne $ExpectedVersionCode) { continue }
                 if (-not (Test-LanPowerHandshakeSignature $ManagementKey "state`n$nonce`n$deviceId`n$($reply.agentVersion)`n$($reply.uwf)`n$($reply.capabilities)" ([string]$reply.stateSignature))) { continue }
                 if (-not (Test-LanPowerHandshakeSignature $ManagementKey "update`n$nonce`n$deviceId`n$($reply.clientVersionCode)`n$($reply.latestVersion)`n$($reply.updateStatus)`n$($reply.updateMessage)" ([string]$reply.updateSignature))) { continue }
+                if ($RequireMedia) {
+                    if (-not (Test-LanPowerHandshakeSignature $ManagementKey "runtime`n$nonce`n$deviceId`n$($reply.runtimeStatus)`n$($reply.runtimeMessage)" ([string]$reply.runtimeSignature))) { continue }
+                    if ($reply.runtimeStatus -cne 'ready') { $mediaProblem = [string]$reply.runtimeMessage; continue }
+                    if ('media' -notin ([string]$reply.capabilities).Split(',') -or [int]$reply.mediaPort -ne 17842 -or [string]$reply.mediaCertSha256 -cnotmatch '\A[0-9a-f]{64}\z') { continue }
+                    if (-not (Test-LanPowerHandshakeSignature $ManagementKey "lockstate`n$nonce`n$deviceId`n$($reply.lockState)`n$($reply.mediaVersion)`n$($reply.mediaPort)`n$($reply.mediaCertSha256)" ([string]$reply.lockSignature))) { continue }
+                }
                 return [pscustomobject]@{ Ready = $true; DeviceId = $deviceId; Version = $ExpectedVersion; VersionCode = $ExpectedVersionCode }
             }
             catch { } # A startup delay or unauthenticated packet cannot count as success.
             Start-Sleep -Milliseconds 100
         }
+        if ($RequireMedia) { throw ('MEDIA_RECEIVER_NOT_READY: Client power management is installed, but its advertising receiver is unavailable. ' + $mediaProblem) }
         throw 'CLIENT_NOT_RESPONDING: Da ghi tep nhung client chua phan hoi hop le. Chon Cai / Cai de de thu lai; chua bao cai dat thanh cong.'
     }
     finally { $watch.Stop(); $socket.Dispose() }
@@ -631,14 +640,20 @@ function Invoke-LanPowerInstall {
         if ([IO.Path]::GetFullPath($entry[0]) -ine [IO.Path]::GetFullPath($destination)) { Set-LanPowerAtomicFile $destination ([IO.File]::ReadAllBytes($entry[0])) }
     }
     $mediaDataRoot = ''
+    $mediaSetupMessage = 'Media preparation was skipped.'
     if (-not $SkipMediaSetup) {
         try {
             $dataRoot = if ($previous -and $previous.PSObject.Properties['runtimeDataRoot'] -and $previous.runtimeDataRoot) { [string]$previous.runtimeDataRoot } else { 'D:\RoomTN20Data' }
             $mediaDataRoot = Initialize-LanPowerMediaData -DataRoot $dataRoot
-            if ($mediaDataRoot) { Initialize-LanPowerMediaCertificate -Path (Join-Path $InstallPath 'media-certificate.pfx') -DeviceId $deviceId }
-            else { Write-Warning 'MEDIA_DATA_UNAVAILABLE: D: was not found. Power management is installed; lock/advertising requires an unprotected D: drive and reinstall.' }
+            if ($mediaDataRoot) { Initialize-LanPowerMediaCertificate -Path (Join-Path $InstallPath 'media-certificate.pfx') -DeviceId $deviceId; $mediaSetupMessage = 'Data drive and media certificate prepared.' }
+            else { $mediaSetupMessage = 'D: was not found. Advertising requires an unprotected D: drive and reinstall.'; Write-Warning ('MEDIA_DATA_UNAVAILABLE: ' + $mediaSetupMessage) }
         }
-        catch { $mediaDataRoot = ''; Write-Warning ('MEDIA_DATA_UNAVAILABLE: Power management is installed; advertising was not enabled. ' + $_.Exception.Message) }
+        catch {
+            $mediaDataRoot = ''
+            $mediaSetupMessage = $_.Exception.GetBaseException().Message.Replace($ManagementKey, '[hidden]') -replace '[\r\n\x00]', ' '
+            if ($mediaSetupMessage.Length -gt 256) { $mediaSetupMessage = $mediaSetupMessage.Substring(0, 256) }
+            Write-Warning ('MEDIA_DATA_UNAVAILABLE: Power management is installed; advertising was not enabled. ' + $mediaSetupMessage)
+        }
     }
     $newConfig = [ordered]@{
         deviceId = $deviceId
@@ -649,9 +664,10 @@ function Invoke-LanPowerInstall {
         updateTaskName = $updateTaskName
         displayTaskName = $displayTaskName
         runtimeDataRoot = $mediaDataRoot
+        runtimeSetupMessage = $mediaSetupMessage
         runtimePort = 17842
-        version = '1.3.0'
-        versionCode = 10
+        version = '1.3.1'
+        versionCode = 11
         installedAt = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json
     Set-LanPowerAtomicFile $configPath ([Text.Encoding]::ASCII.GetBytes($newConfig))
@@ -685,7 +701,7 @@ function Invoke-LanPowerInstall {
     Register-ScheduledTask -TaskName $updateTaskName -Action $updateAction -Trigger @($updateStartup, $updatePeriodic) -Settings $updateSettings -Principal $taskPrincipal -Force | Out-Null
     Start-ScheduledTask -TaskName $TaskName
     Invoke-LanPowerUwfPreparation -SkipUwfPreparation:$SkipUwfPreparation -InstallPath $InstallPath
-    [void](Wait-LanPowerInstalledAgent -InstallPath $InstallPath -ManagementKey $ManagementKey -Port $Port)
+    [void](Wait-LanPowerInstalledAgent -InstallPath $InstallPath -ManagementKey $ManagementKey -Port $Port -RequireMedia:([bool]$mediaDataRoot))
     Write-Host "Standalone agent installed. UDP $Port is open to LocalSubnet." -ForegroundColor Green
     }
     finally { $installMutex.ReleaseMutex(); $installMutex.Dispose() }

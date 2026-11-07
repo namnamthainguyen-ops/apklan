@@ -7,7 +7,7 @@ New-Item -ItemType Directory -Path $testRoot | Out-Null
 try {
     $cert = Join-Path $testRoot 'fixture.pfx'
     Initialize-LanPowerMediaCertificate -Path $cert -DeviceId ([Guid]::NewGuid().ToString())
-    $runtime = Join-Path $repoRoot 'release\RoomTN20.Runtime-1.3.0.dll'
+    $runtime = Join-Path $repoRoot 'release\RoomTN20.Runtime-1.3.1.dll'
     Copy-Item -LiteralPath $runtime -Destination $testRoot
     $compiler = Join-Path ([Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) 'csc.exe'
     $exe = Join-Path $testRoot 'Media-Transfer-Smoke.exe'
@@ -15,6 +15,37 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Media smoke test compilation failed.' }
     & $exe $testRoot $cert
     if ($LASTEXITCODE -ne 0) { throw 'Actual media transfer test failed.' }
+    # Exercise the real PowerShell agent as SYSTEM as well as the DLL client/server.
+    $agentRoot = Join-Path $testRoot 'Agent'
+    $displayRoot = Join-Path $agentRoot 'Display'
+    $dataRoot = Join-Path $testRoot 'AgentData'
+    New-Item -ItemType Directory -Path $displayRoot, $dataRoot -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'client\StandaloneAgent.ps1') -Destination $agentRoot
+    Copy-Item -LiteralPath $runtime -Destination (Join-Path $agentRoot 'RoomTN20.Runtime.dll')
+    Copy-Item -LiteralPath $cert -Destination (Join-Path $agentRoot 'media-certificate.pfx')
+    [IO.File]::WriteAllText((Join-Path $displayRoot 'RoomTN20.Player.exe'), 'Not an executable program; cannot show UI.')
+    $probe = [Net.Sockets.UdpClient]::new(0)
+    $udpPort = ([Net.IPEndPoint]$probe.Client.LocalEndPoint).Port
+    $probe.Dispose()
+    $fixtureKey = [Convert]::ToBase64String((New-Object byte[] 32))
+    $config = @{ deviceId = [Guid]::NewGuid().ToString(); managementKey = $fixtureKey; port = $udpPort;
+        runtimeDataRoot = $dataRoot; runtimePort = 17842; version = '1.3.1'; versionCode = 11 } | ConvertTo-Json
+    Set-LanPowerAtomicFile (Join-Path $agentRoot 'config.json') ([Text.Encoding]::ASCII.GetBytes($config))
+    Set-LanPowerDirectorySecurity $agentRoot
+    $taskName = 'RoomTN20MediaSmoke-' + [Guid]::NewGuid().ToString('N')
+    try {
+        $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $action = New-ScheduledTaskAction -Execute $powershell -Argument ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"' -f (Join-Path $agentRoot 'StandaloneAgent.ps1'))
+        $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+        Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Force | Out-Null
+        Start-ScheduledTask -TaskName $taskName
+        [void](Wait-LanPowerInstalledAgent -InstallPath $agentRoot -ManagementKey $fixtureKey -Port $udpPort -RequireMedia -ExpectedVersion '1.3.1' -ExpectedVersionCode 11)
+        Write-Output 'SYSTEM_MEDIA_RECEIVER_READY=PASS (real agent/SYSTEM, signed receiver readiness; inert player fixture, no UI or power/UWF commands)'
+    }
+    finally {
+        Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+    }
 }
 finally {
     $full = [IO.Path]::GetFullPath($testRoot)

@@ -34,7 +34,9 @@ internal static class MediaTransferSmoke
         {
             tls.ReadTimeout = tls.WriteTimeout = 10000;
             tls.AuthenticateAsClient("RoomTN20", null, SslProtocols.Tls12, false);
-            tls.Write(header, 0, header.Length); tls.Write(actual, 0, actual.Length); tls.Flush();
+            byte[] request = new byte[header.Length + actual.Length];
+            Buffer.BlockCopy(header, 0, request, 0, header.Length); Buffer.BlockCopy(actual, 0, request, header.Length, actual.Length);
+            tls.Write(request, 0, request.Length); tls.Flush();
             MemoryStream bytes = new MemoryStream();
             for (int value; (value = tls.ReadByte()) != -1; ) { if (value == 10) break; bytes.WriteByte((byte)value); Assert(bytes.Length <= 32768, "Unbounded response"); }
             Dictionary<string, object> reply = (Dictionary<string, object>)Json.DeserializeObject(Encoding.UTF8.GetString(bytes.ToArray()));
