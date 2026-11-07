@@ -23,7 +23,7 @@ function Invoke-UwfAction {
 '@
     'Invoke-PowerAction' = 'function Invoke-PowerAction { param([string]$Action) Write-Output "TEST_POWER_ACTION=$Action" }'
     'Invoke-WakeRelay' = 'function Invoke-WakeRelay { param([string]$Mac) [Console]::WriteLine("TEST_WAKE_RELAY=$Mac"); return "Wake-on-LAN relayed." }'
-    'Initialize-LanPowerRuntime' = 'function Initialize-LanPowerRuntime { param([object]$Config) $script:TestLocked = $false }'
+    'Initialize-LanPowerRuntime' = 'function Initialize-LanPowerRuntime { param([object]$Config) $script:TestLocked = $false; $script:RuntimeLastTry = [DateTime]::UtcNow; $script:RuntimeStatus = "ready"; $script:RuntimeMessage = "Fixture media receiver is ready." }'
     'Get-LanPowerRuntimeSnapshot' = 'function Get-LanPowerRuntimeSnapshot { return @{ lockState = $(if ($script:TestLocked) { "locked" } else { "unlocked" }); mediaVersion = "none"; mediaPort = 17842; mediaCertSha256 = ("A" * 64); available = $true } }'
     'Invoke-LanPowerSessionLock' = @'
 function Invoke-LanPowerSessionLock {

@@ -66,6 +66,9 @@ final class ManagedDevice {
     String updateStatus = "unknown";
     String updateMessage = "Chưa xác thực thông tin cập nhật";
     boolean updateAuthenticated;
+    boolean runtimeAuthenticated;
+    String runtimeStatus = "unknown";
+    String runtimeMessage = "";
     String lockState = "unknown";
     String mediaVersion = "none";
     int mediaPort;
@@ -104,6 +107,12 @@ final class ManagedDevice {
 
     boolean supportsMedia() { return lockAuthenticated && supports("media") && mediaPort == 17842 && mediaCertSha256.matches("[a-f0-9]{64}"); }
 
+    String mediaUnavailableReason() {
+        if (runtimeAuthenticated && "not-configured".equals(runtimeStatus)) return "Client chưa chuẩn bị bộ nhận quảng cáo. Kiểm tra D: chưa đóng băng rồi cài đè client mới. Nếu C: đang đóng băng, mở bảo vệ và khởi động lại trước khi cài. " + runtimeMessage;
+        if (runtimeAuthenticated && "error".equals(runtimeStatus)) return "Bộ nhận quảng cáo trên Windows lỗi: " + runtimeMessage;
+        return "Client " + agentVersion + " chưa bật bộ nhận quảng cáo. Cài đè client mới trên máy con; cần D: chưa đóng băng. Nếu C: đang đóng băng, mở bảo vệ và khởi động lại trước khi cài";
+    }
+
     String uwfDescription() {
         if (!stateAuthenticated) return "Chưa xác thực / agent cũ";
         if (!supportsUwf()) return "Chưa cài / chưa chuẩn bị UWF";
@@ -129,6 +138,9 @@ final class ManagedDevice {
         value.updateStatus = updateStatus;
         value.updateMessage = updateMessage;
         value.updateAuthenticated = updateAuthenticated;
+        value.runtimeAuthenticated = runtimeAuthenticated;
+        value.runtimeStatus = runtimeStatus;
+        value.runtimeMessage = runtimeMessage;
         value.lockState = lockState;
         value.mediaVersion = mediaVersion;
         value.mediaPort = mediaPort;

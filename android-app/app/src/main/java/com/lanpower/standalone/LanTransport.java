@@ -105,6 +105,15 @@ final class LanTransport {
                         }
                     } catch (IllegalArgumentException invalidLockState) { }
                     found.put(id, device);
+                    try {
+                        String runtimeStatus = response.optString("runtimeStatus");
+                        String runtimeMessage = response.optString("runtimeMessage");
+                        if (LanProtocol.verify(key, LanProtocol.runtimeCanonical(nonce, id, runtimeStatus, runtimeMessage), response.optString("runtimeSignature"))) {
+                            device.runtimeAuthenticated = true;
+                            device.runtimeStatus = runtimeStatus;
+                            device.runtimeMessage = runtimeMessage;
+                        }
+                    } catch (IllegalArgumentException invalidRuntime) { }
                 } catch (SocketTimeoutException ignored) { }
                 catch (JSONException | IllegalArgumentException malformed) {
                     // Keep listening for other machines after invalid datagrams.

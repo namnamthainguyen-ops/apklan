@@ -35,7 +35,8 @@ final class MediaTransfer {
 
     String send(String roomId, String key, ManagedDevice device, RoomPlaylist playlist, RoomMediaStorage storage, Progress progress) throws Exception {
         playlist.validate();
-        if (!device.supportsMedia() || !device.online || !VpnTargets.isPrivateAddress(device.ip)) throw new IOException("Máy chưa hỗ trợ nhận quảng cáo đã xác thực hoặc đang ngoại tuyến");
+        if (!device.online || !VpnTargets.isPrivateAddress(device.ip)) throw new IOException("Máy đang ngoại tuyến hoặc chưa có địa chỉ LAN/VPN hợp lệ");
+        if (!device.supportsMedia()) throw new IOException(device.mediaUnavailableReason());
         if (!playlist.version.matches("[a-f0-9]{32}")) throw new IOException("Phòng chưa có nội dung để gửi");
         JSONArray files = new JSONArray();
         for (MediaItem item : playlist.files) {

@@ -73,6 +73,20 @@ public final class RoomPlaylistTest {
         assertFalse(LanProtocol.verify(keyA, LanProtocol.mediaCanonical("pc-a", 10, nonce, version, 20, "d".repeat(64)), signature));
     }
 
+    @Test public void mediaFailureDetailsRequireAuthenticatedRuntimeState() throws Exception {
+        String key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        String value = LanProtocol.runtimeCanonical("nonce", "pc", "error", "Access denied");
+        String signature = LanProtocol.hmac(key, value);
+        assertTrue(LanProtocol.verify(key, value, signature));
+        assertFalse(LanProtocol.verify(key, LanProtocol.runtimeCanonical("nonce", "pc", "ready", "Ready"), signature));
+        assertThrows(IllegalArgumentException.class, () -> LanProtocol.runtimeCanonical("nonce", "pc", "error", "bad\nmessage"));
+        ManagedDevice device = new ManagedDevice("pc", "PC", "192.168.1.2", "02:00:00:00:00:01");
+        device.runtimeAuthenticated = true; device.runtimeStatus = "not-configured";
+        assertTrue(device.mediaUnavailableReason().contains("D:"));
+        device.runtimeStatus = "error"; device.runtimeMessage = "Runtime failure";
+        assertTrue(device.copy().mediaUnavailableReason().contains("Runtime failure"));
+    }
+
     @Test public void signedLockStateAndMediaAckRejectTampering() throws Exception {
         String key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
         String state = LanProtocol.lockStateCanonical("nonce", "pc", "locked", "a".repeat(32), 17842, "b".repeat(64));

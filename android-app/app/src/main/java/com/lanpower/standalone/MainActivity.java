@@ -332,14 +332,16 @@ public final class MainActivity extends Activity {
     private void renderRoom(RoomModel room) {
         selected.retainAll(room.devices.keySet());
         content.addView(text(roomCounts(room), 16, NAVY), matchWrap());
+        LinearLayout roomTools = row();
         Button network = button("Mạng LAN/VPN", BLUE, R.id.network_settings);
         network.setEnabled(!busy);
         network.setOnClickListener(view -> editNetwork(room));
-        content.addView(network, matchWrap());
-        Button media = button("Quảng cáo riêng của phòng", BLUE, R.id.room_media);
+        roomTools.addView(network, weighted());
+        Button media = button("Quảng cáo phòng", BLUE, R.id.room_media);
         media.setEnabled(!busy);
         media.setOnClickListener(view -> { showingMedia = true; deviceId = null; render(); });
-        content.addView(media, matchWrap());
+        roomTools.addView(media, weighted());
+        content.addView(roomTools, matchWrap());
         if (!room.scanError.isEmpty()) content.addView(note("Lần quét thất bại, trạng thái hiện tại chưa xác định: " + room.scanError));
         CheckBox all = new CheckBox(this);
         selectAllBox = all;
@@ -660,7 +662,7 @@ public final class MainActivity extends Activity {
     private String mediaStatus(RoomModel room, ManagedDevice device) {
         if ("none".equals(room.playlist.version)) return "Phòng chưa chọn nội dung";
         if (!device.online || !room.scanError.isEmpty()) return "Chờ gửi khi máy online; chọn Gửi lại cho phòng";
-        if (!device.lockAuthenticated) return "Chưa xác thực / cần cập nhật client";
+        if (!device.lockAuthenticated || !device.supportsMedia()) return device.mediaUnavailableReason();
         return room.playlist.version.equals(device.mediaVersion) ? "Đã có nội dung mới nhất của phòng" : "Chưa có bản mới của phòng; cần gửi lại";
     }
 
@@ -789,15 +791,21 @@ public final class MainActivity extends Activity {
         final RoomPlaylist playlist = room.playlist.copy();
         final List<ManagedDevice> targets = new ArrayList<>();
         for (ManagedDevice device : room.devices.values()) targets.add(device.copy());
-        final boolean scanFailed = !room.scanError.isEmpty();
-        setBusy(true, "Đang gửi quảng cáo riêng cho phòng " + room.name + "…");
+        final List<String> discoveryTargets;
+        try { discoveryTargets = scanTargets(room); }
+        catch (Exception error) { statusMessage = "Chưa gửi được: " + readable(error); render(); return; }
+        setBusy(true, "Đang kiểm tra bộ nhận quảng cáo của phòng " + room.name + "…");
         executor.execute(() -> {
             List<String> results = new ArrayList<>();
             int successes = 0;
+            final Map<String, ManagedDevice> fresh = new LinkedHashMap<>();
+            try { for (ManagedDevice device : transport.discover(key, discoveryTargets)) fresh.put(device.id, device); }
+            catch (Exception error) { postResult(() -> setBusy(false, "Chưa gửi: không kiểm tra được máy trong phòng. " + readable(error))); return; }
             for (int i = 0; i < targets.size(); i++) {
-                ManagedDevice target = targets.get(i);
+                ManagedDevice saved = targets.get(i);
+                ManagedDevice target = fresh.get(saved.id);
                 if (destroyed) return;
-                if (!target.online || scanFailed) { results.add(target.hostname + ": CHỜ GỬI — Máy offline/chưa phản hồi; chọn gửi lại khi online"); continue; }
+                if (target == null || !target.online) { results.add(saved.hostname + ": CHỜ GỬI — Máy offline/chưa phản hồi; chọn gửi lại khi online"); continue; }
                 final int position = i + 1;
                 try {
                     String result = mediaTransfer.send(targetRoomId, key, target, playlist, mediaStorage, (done, total) -> {

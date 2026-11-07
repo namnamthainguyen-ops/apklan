@@ -1,4 +1,4 @@
-param([string]$TestRoot, [int]$Port, [string]$RoomKey, [int]$TimeoutSeconds = 2)
+param([string]$TestRoot, [int]$Port, [string]$RoomKey, [int]$TimeoutSeconds = 2, [switch]$RequireMedia)
 $ErrorActionPreference = 'Stop'
 $tokens = $null
 $errors = $null
@@ -10,6 +10,6 @@ foreach ($name in @('ConvertTo-LanPowerManagementKey', 'Get-LanPowerHandshakeHma
     if ($found.Count -ne 1) { throw "Expected one production function $name." }
     . ([scriptblock]::Create($found[0].Extent.Text))
 }
-$result = Wait-LanPowerInstalledAgent -InstallPath $TestRoot -RoomKey $RoomKey -Port $Port -TimeoutSeconds $TimeoutSeconds
+$result = Wait-LanPowerInstalledAgent -InstallPath $TestRoot -RoomKey $RoomKey -Port $Port -TimeoutSeconds $TimeoutSeconds -RequireMedia:$RequireMedia
 if (-not $result.Ready) { throw 'Readiness was not verified.' }
 Write-Output 'INSTALLED_AGENT_READY=PASS'

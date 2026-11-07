@@ -3,14 +3,14 @@ param([string]$OutputPath)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repoRoot = Split-Path -Parent $PSScriptRoot
-if (-not $OutputPath) { $OutputPath = Join-Path $repoRoot 'release\RoomTN20-ClientSetup-1.3.0.exe' }
+if (-not $OutputPath) { $OutputPath = Join-Path $repoRoot 'release\RoomTN20-ClientSetup-1.3.1.exe' }
 $OutputPath = [IO.Path]::GetFullPath($OutputPath)
 $agentPath = Join-Path $repoRoot 'client\StandaloneAgent.ps1'
 $corePath = Join-Path $repoRoot 'client\Install-Core.ps1'
 $updaterPath = Join-Path $repoRoot 'client\Update-Agent.ps1'
 $publicKeyPath = Join-Path $repoRoot 'client\Update-PublicKey.xml'
-$runtimePath = Join-Path $repoRoot 'release\RoomTN20.Runtime-1.3.0.dll'
-$playerPath = Join-Path $repoRoot 'release\RoomTN20.Player-1.3.0.exe'
+$runtimePath = Join-Path $repoRoot 'release\RoomTN20.Runtime-1.3.1.dll'
+$playerPath = Join-Path $repoRoot 'release\RoomTN20.Player-1.3.1.exe'
 $agentHash = (Get-FileHash -LiteralPath $agentPath -Algorithm SHA256).Hash
 $coreHash = (Get-FileHash -LiteralPath $corePath -Algorithm SHA256).Hash
 $updaterHash = (Get-FileHash -LiteralPath $updaterPath -Algorithm SHA256).Hash
@@ -37,8 +37,8 @@ namespace LanPower.ClientSetup {
         internal const string PublicKeySha256 = "$publicKeyHash";
         internal const string RuntimeSha256 = "$runtimeHash";
         internal const string PlayerSha256 = "$playerHash";
-        internal const string Version = "1.3.0";
-        internal const int VersionCode = 10;
+        internal const string Version = "1.3.1";
+        internal const int VersionCode = 11;
     }
 }
 "@

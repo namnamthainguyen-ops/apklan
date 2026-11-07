@@ -13,17 +13,17 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $AgentUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/StandaloneAgent.ps1'
-$AgentSha256 = '548439D56895448AAE06699A3A952373D61CBB8E27544DE73122B580F23C1D61'
+$AgentSha256 = 'A89BAC17559D5FF6EC692CBC727349DF155D2694FA8D880A0A059F62422CCF51'
 $CoreUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Install-Core.ps1'
-$CoreSha256 = '9702BA354B19F8390E6CFD1592EA766A2092BFBB32DD7C7C446193DD52E87D2D'
+$CoreSha256 = 'B1240AB10A0D0E2DC6A5FF1459DE03607D1F81A05AA8016878B9918266FCEE5C'
 $UpdaterUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Update-Agent.ps1'
 $UpdaterSha256 = '8B9DBD1BD8E79E8856B988D51D4AC898B7875D26A1725BB43F8345AA99D4C3E7'
 $PublicKeyUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Update-PublicKey.xml'
 $PublicKeySha256 = '050AB33ED6D45DDEF846DDE7D5882E2B1F698154C8306860DC70531A23EE0333'
-$RuntimeUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20.Runtime-1.3.0.dll'
-$RuntimeSha256 = '849A8D7DEF1CE36B5543DE07996FB8BF0E53AF555D07A36FA8779D730140178C'
-$PlayerUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20.Player-1.3.0.exe'
-$PlayerSha256 = '0C37A28B3475127CB51FD8725B3B4E5ADF1C64263EC3CCFA538F8551527CA887'
+$RuntimeUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20.Runtime-1.3.1.dll'
+$RuntimeSha256 = '74FD51F2FCBE72094C8E97FC3C3B6DAC27C2E5386CDF2D852C354BB44DA9E01F'
+$PlayerUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20.Player-1.3.1.exe'
+$PlayerSha256 = '74ED979DF512E0943CF62D51A1B838989F1E45D11E80F30A28922BBAEF36A054'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run PowerShell as Administrator.' }

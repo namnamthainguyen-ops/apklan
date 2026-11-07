@@ -110,6 +110,13 @@ final class LanProtocol {
         return hex.substring(0, 2) + ":" + hex.substring(2, 4) + ":" + hex.substring(4, 6) + ":" + hex.substring(6, 8) + ":" + hex.substring(8, 10) + ":" + hex.substring(10, 12);
     }
 
+    static String runtimeCanonical(String nonce, String deviceId, String status, String message) {
+        requireField(nonce); requireField(deviceId); requireField(status);
+        if (!java.util.Arrays.asList("ready", "not-configured", "error").contains(status) || message == null || message.length() > 256
+                || message.contains("\n") || message.contains("\r") || message.contains("\0")) throw new IllegalArgumentException("Invalid runtime status");
+        return "runtime\n" + nonce + "\n" + deviceId + "\n" + status + "\n" + message;
+    }
+
     static String lockStateCanonical(String nonce, String deviceId, String state, String version, int port, String cert) {
         requireField(nonce);
         requireField(deviceId);

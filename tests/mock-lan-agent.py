@@ -99,12 +99,12 @@ def handle_request(udp, remote, data):
                         continue
                     DISCOVERY_BY_ROOM[device["room"]] = DISCOVERY_BY_ROOM.get(device["room"], 0) + 1
                     response = {"type": "discovery", "requestNonce": nonce, "deviceId": device["id"],
-                                "hostname": device["hostname"], "mac": device["mac"], "agentVersion": "1.3.0",
+                                "hostname": device["hostname"], "mac": device["mac"], "agentVersion": "1.3.1",
                                 "uwf": uwf(device), "capabilities": "power,uwf,wolrelay,sessionlock,media",
                                 "lockState": "locked" if device["locked"] else "unlocked", "mediaVersion": device["mediaVersion"],
                                 "mediaPort": 17842, "mediaCertSha256": "a" * 64}
                     response["signature"] = sign(key, f"discovery\n{nonce}\n{device['id']}\n{device['hostname']}\n{device['mac']}")
-                    response["stateSignature"] = sign(key, f"state\n{nonce}\n{device['id']}\n1.3.0\n{response['uwf']}\n{response['capabilities']}")
+                    response["stateSignature"] = sign(key, f"state\n{nonce}\n{device['id']}\n1.3.1\n{response['uwf']}\n{response['capabilities']}")
                     response["lockSignature"] = sign(key, f"lockstate\n{nonce}\n{device['id']}\n{response['lockState']}\n{device['mediaVersion']}\n17842\n{response['mediaCertSha256']}")
                     send(udp, remote, response)
                 return

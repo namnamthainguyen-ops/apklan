@@ -152,7 +152,7 @@ try {
     Invoke-OfflineTestInstall
     $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
     Assert-True ($config.managementKey -ceq $key) 'Installer stores the derived room key.'
-    Assert-True ([int]$config.versionCode -eq 10 -and $config.version -eq '1.3.0') 'Installer records the signed-update client version.'
+    Assert-True ([int]$config.versionCode -eq 11 -and $config.version -eq '1.3.1') 'Installer records the signed-update client version.'
     Assert-True ($config.runtimeDataRoot -eq '' -and [int]$config.runtimePort -eq 17842) 'CI media setup is skipped without touching D: or an interactive session.'
     Assert-True ($config.updateTaskName -eq $updateTaskName -and $config.agentTaskName -eq $taskName) 'Installer records both dedicated task names.'
     Assert-True (@($config.vpnNetworks).Count -eq 0) 'Default installation has no implicit remote VPN trust.'
@@ -182,7 +182,7 @@ try {
     Assert-SecureAcl (Join-Path $installPath 'RoomTN20.Runtime.dll')
     Assert-DisplayAcl (Join-Path $installPath 'Display')
     Assert-DisplayAcl (Join-Path $installPath 'Display\RoomTN20.Player.exe')
-    foreach ($entry in @(@('RoomTN20.Runtime.dll', 'RoomTN20.Runtime-1.3.0.dll'), @('Display\RoomTN20.Player.exe', 'RoomTN20.Player-1.3.0.exe'))) {
+    foreach ($entry in @(@('RoomTN20.Runtime.dll', 'RoomTN20.Runtime-1.3.1.dll'), @('Display\RoomTN20.Player.exe', 'RoomTN20.Player-1.3.1.exe'))) {
         Assert-True ((Get-FileHash -LiteralPath (Join-Path $installPath $entry[0]) -Algorithm SHA256).Hash -ceq
             (Get-FileHash -LiteralPath (Join-Path $repoRoot ('release\' + $entry[1])) -Algorithm SHA256).Hash) 'Installed runtime/player matches the verified published payload.'
     }

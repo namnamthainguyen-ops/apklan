@@ -439,6 +439,8 @@ print("ANDROID_DUPLICATE_ROOM_REJECTED=PASS (persisted room IDs and names unchan
 open_room(ROOM_A)
 refresh()
 assert visible_devices() == {"CI-A-01", "CI-A-02"}, "Room A did not isolate its discovered machines"
+with open("emulator-evidence/room-tools.png", "wb") as picture:
+    subprocess.run(["adb", "exec-out", "screencap", "-p"], stdout=picture, check=True, timeout=30)
 
 tap(lambda node: node.get("content-desc") == "device:CI-A-01",
     lambda tree: any(node.attrib.get("text", "").startswith("Hostname: CI-A-01") for node in tree.iter("node")))
