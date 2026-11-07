@@ -102,7 +102,7 @@ def handle_request(udp, remote, data):
                                 "hostname": device["hostname"], "mac": device["mac"], "agentVersion": "1.3.0",
                                 "uwf": uwf(device), "capabilities": "power,uwf,wolrelay,sessionlock,media",
                                 "lockState": "locked" if device["locked"] else "unlocked", "mediaVersion": device["mediaVersion"],
-                                "mediaPort": 17842, "mediaCertSha256": "A" * 64}
+                                "mediaPort": 17842, "mediaCertSha256": "a" * 64}
                     response["signature"] = sign(key, f"discovery\n{nonce}\n{device['id']}\n{device['hostname']}\n{device['mac']}")
                     response["stateSignature"] = sign(key, f"state\n{nonce}\n{device['id']}\n1.3.0\n{response['uwf']}\n{response['capabilities']}")
                     response["lockSignature"] = sign(key, f"lockstate\n{nonce}\n{device['id']}\n{response['lockState']}\n{device['mediaVersion']}\n17842\n{response['mediaCertSha256']}")
