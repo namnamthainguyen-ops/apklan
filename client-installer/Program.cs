@@ -22,8 +22,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("TN20 - Trình cài client quản lý máy tính trong mạng LAN")]
 [assembly: AssemblyCompany("Công ty TNHH TN20")]
 [assembly: AssemblyProduct("Room TN20")]
-[assembly: AssemblyVersion("1.2.4.0")]
-[assembly: AssemblyFileVersion("1.2.4.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
 [assembly: TargetFramework(".NETFramework,Version=v4.7.2", FrameworkDisplayName = ".NET Framework 4.7.2")]
 
 namespace LanPower.ClientSetup
@@ -90,6 +90,7 @@ namespace LanPower.ClientSetup
     internal sealed class InstallResult
     {
         internal string Message;
+        internal string MediaNotice;
         internal bool UwfWarning;
         internal bool RestartRequired;
         internal bool UwfNotSupported;
@@ -288,7 +289,9 @@ namespace LanPower.ClientSetup
             string coreHash = Sha256(Resource("Install-Core.ps1"));
             string updaterHash = Sha256(Resource("Update-Agent.ps1"));
             string publicKeyHash = Sha256(Resource("Update-PublicKey.xml"));
-            if (agentHash != PayloadInfo.AgentSha256 || coreHash != PayloadInfo.CoreSha256 || updaterHash != PayloadInfo.UpdaterSha256 || publicKeyHash != PayloadInfo.PublicKeySha256)
+            string runtimeHash = Sha256(Resource("RoomTN20.Runtime.dll"));
+            string playerHash = Sha256(Resource("RoomTN20.Player.exe"));
+            if (agentHash != PayloadInfo.AgentSha256 || coreHash != PayloadInfo.CoreSha256 || updaterHash != PayloadInfo.UpdaterSha256 || publicKeyHash != PayloadInfo.PublicKeySha256 || runtimeHash != PayloadInfo.RuntimeSha256 || playerHash != PayloadInfo.PlayerSha256)
                 throw new InvalidOperationException("Embedded payload checksum mismatch.");
             using (Runspace runspace = OpenCore())
             {
@@ -333,6 +336,8 @@ namespace LanPower.ClientSetup
                 Console.WriteLine("CORE_SHA256=" + coreHash);
                 Console.WriteLine("UPDATER_SHA256=" + updaterHash);
                 Console.WriteLine("PUBLIC_KEY_SHA256=" + publicKeyHash);
+                Console.WriteLine("RUNTIME_SHA256=" + runtimeHash);
+                Console.WriteLine("PLAYER_SHA256=" + playerHash);
                 Console.WriteLine("ROOM_KEY_KDF=PASS");
                 Console.WriteLine("HOSTED_ERROR_POLICY=PASS");
                 Console.WriteLine("PAYLOAD_VERIFY=PASS");
@@ -374,7 +379,7 @@ namespace LanPower.ClientSetup
             foreach (string file in Directory.GetFiles(full))
             {
                 string name = Path.GetFileName(file);
-                if ((name != "StandaloneAgent.ps1" && name != "Install-Core.ps1" && name != "Update-Agent.ps1" && name != "Update-PublicKey.xml" && name != "RoomTN20-ClientSetup.exe") || (File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+                if ((name != "StandaloneAgent.ps1" && name != "Install-Core.ps1" && name != "Update-Agent.ps1" && name != "Update-PublicKey.xml" && name != "RoomTN20.Runtime.dll" && name != "RoomTN20.Player.exe" && name != "RoomTN20-ClientSetup.exe") || (File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
                     throw new InvalidOperationException("Unexpected file in installer extraction directory.");
                 File.Delete(file);
             }
@@ -393,7 +398,7 @@ namespace LanPower.ClientSetup
             try
             {
                 string agentPath = Path.Combine(payloadDirectory, "StandaloneAgent.ps1");
-                foreach (string name in new string[] { "StandaloneAgent.ps1", "Install-Core.ps1", "Update-Agent.ps1", "Update-PublicKey.xml" })
+                foreach (string name in new string[] { "StandaloneAgent.ps1", "Install-Core.ps1", "Update-Agent.ps1", "Update-PublicKey.xml", "RoomTN20.Runtime.dll", "RoomTN20.Player.exe" })
                     File.WriteAllBytes(Path.Combine(payloadDirectory, name), Resource(name));
                 using (Runspace runspace = OpenCore())
                 {
@@ -404,12 +409,26 @@ namespace LanPower.ClientSetup
                         powershell.AddCommand("Invoke-LanPowerInstall").AddParameter("SourceAgent", agentPath).AddParameter("RoomKey", roomKey)
                             .AddParameter("InstallPath", installPath).AddParameter("TaskName", taskName).AddParameter("Port", port);
                         powershell.AddParameter("SkipUwfPreparation", true);
+                        if (!prepareUwf) powershell.AddParameter("SkipMediaSetup", true); // Disposable-runner verification mode.
                         if (!String.IsNullOrWhiteSpace(vpnNetworks)) powershell.AddParameter("VpnNetworks", new string[] { vpnNetworks });
                         powershell.Invoke();
                         ThrowErrors(powershell);
                     }
                     InstallResult result = new InstallResult();
-                    result.Message = "Đã cài agent quản lý LAN/VPN và tác vụ tự cập nhật có xác minh chữ ký mỗi 6 giờ. Mở app Android, nhập cùng khóa phòng rồi quét LAN hoặc thêm địa chỉ VPN.";
+                    result.Message = "Đã cài Room TN20 quản lý LAN/VPN và tự cập nhật có xác minh chữ ký. Mở app Android, nhập đúng khóa riêng của phòng rồi quét LAN hoặc thêm địa chỉ VPN.";
+                    using (PowerShell powershell = PowerShell.Create())
+                    {
+                        powershell.Runspace = runspace;
+                        powershell.AddCommand("Get-Content").AddParameter("LiteralPath", Path.Combine(installPath, "config.json")).AddParameter("Raw");
+                        powershell.AddCommand("ConvertFrom-Json");
+                        System.Collections.ObjectModel.Collection<PSObject> configs = powershell.Invoke();
+                        ThrowErrors(powershell);
+                        bool mediaReady = configs.Count == 1 && configs[0].Properties["runtimeDataRoot"] != null && !String.IsNullOrEmpty(Convert.ToString(configs[0].Properties["runtimeDataRoot"].Value));
+                        result.MediaNotice = mediaReady ? "Quảng cáo lưu trên D:, mở khi người dùng đăng nhập." : "Khóa/quảng cáo chưa bật: cần D: không đóng băng rồi cài lại.";
+                        result.Message += mediaReady
+                            ? "\n\nẢnh/video và trạng thái khóa lưu trên D:\\RoomTN20Data. Đăng nhập tài khoản sử dụng máy để hiện quảng cáo; mỗi phòng thay nội dung riêng trong app."
+                            : "\n\nKhóa/quảng cáo chưa bật: cần ổ D: chưa đóng băng rồi cài lại. Chức năng nguồn vẫn sử dụng được.";
+                    }
                     if (prepareUwf)
                     {
                         if (progress != null) progress("Agent đã cài. Đang chuẩn bị tính năng đóng băng C:…");
@@ -593,6 +612,7 @@ namespace LanPower.ClientSetup
             completionSeconds = 3;
             completionMessage = result.UwfNotSupported ? "Cài đặt client thành công. Windows này không hỗ trợ UWF."
                 : result.RestartRequired ? "Cài đặt thành công. UWF cần khởi động lại Windows." : "Cài đặt thành công. Client đã chạy và nhận đúng khóa phòng.";
+            if (!String.IsNullOrEmpty(result.MediaNotice)) completionMessage += "\n" + result.MediaNotice;
             status.ForeColor = Color.FromArgb(32, 125, 70);
             status.Text = completionMessage + "\nBộ cài tự đóng sau 3 giây.";
             keyInput.Clear();

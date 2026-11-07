@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.2.4'
-$AgentVersionCode = 9
+$AgentVersion = '1.3.0'
+$AgentVersionCode = 10
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -16,10 +16,48 @@ $usedNonces = @{}
 $script:UwfState = 'unknown'
 $script:UwfAvailable = $false
 $script:LastUwfCheck = [DateTime]::MinValue
+$script:DisplayRuntime = $null
 
 function Write-DebugLog {
     param([string]$Message)
     if ($DebugMode) { Write-Output $Message }
+}
+
+function Initialize-LanPowerRuntime {
+    param([pscustomobject]$Config)
+    if (-not $Config.PSObject.Properties['runtimeDataRoot'] -or -not [string]$Config.runtimeDataRoot) { return }
+    try {
+        $library = Join-Path $AgentRoot 'RoomTN20.Runtime.dll'
+        $certificate = Join-Path $AgentRoot 'media-certificate.pfx'
+        $player = Join-Path $AgentRoot 'Display\RoomTN20.Player.exe'
+        if (-not (Test-Path -LiteralPath $library -PathType Leaf) -or -not (Test-Path -LiteralPath $certificate -PathType Leaf) -or -not (Test-Path -LiteralPath $player -PathType Leaf)) { throw 'Runtime files or media certificate are missing.' }
+        [void][Reflection.Assembly]::LoadFrom($library)
+        $runtimePort = if ($Config.PSObject.Properties['runtimePort']) { [int]$Config.runtimePort } else { 17842 }
+        $script:DisplayRuntime = [RoomTN20.Runtime.Controller]::Start([string]$Config.runtimeDataRoot, [string]$Config.managementKey, [string]$Config.deviceId, $runtimePort, $certificate, $player)
+    }
+    catch { Write-DebugLog ('Display/media runtime unavailable: ' + $_.Exception.Message); $script:DisplayRuntime = $null }
+}
+
+function Get-LanPowerRuntimeSnapshot {
+    $result = @{ lockState = 'ui-offline'; mediaVersion = 'none'; mediaPort = 0; mediaCertSha256 = ''; available = $false }
+    if ($script:DisplayRuntime) {
+        try {
+            $snapshot = $script:DisplayRuntime.Snapshot()
+            $result.lockState = [string]$snapshot.LockState
+            $result.mediaVersion = [string]$snapshot.MediaVersion
+            $result.mediaPort = [int]$snapshot.MediaPort
+            $result.mediaCertSha256 = [string]$snapshot.MediaCertSha256
+            $result.available = $true
+        }
+        catch { }
+    }
+    return $result
+}
+
+function Invoke-LanPowerSessionLock {
+    param([ValidateSet('lock', 'unlock')][string]$Action)
+    if (-not $script:DisplayRuntime) { throw 'LOCK_RUNTIME_UNAVAILABLE: Check the D: data volume, runtime files and interactive player.' }
+    return $script:DisplayRuntime.SetLocked($Action -eq 'lock')
 }
 
 $created = $false
@@ -260,6 +298,7 @@ try {
     $Port = [int]$config.port
     $hostname = $env:COMPUTERNAME
     $mac = Get-PrimaryMacAddress
+    Initialize-LanPowerRuntime -Config $config
     $udp = [Net.Sockets.UdpClient]::new($Port)
     Write-DebugLog "Listening on UDP $Port"
     try {
@@ -281,9 +320,12 @@ try {
                     $responseSignature = Get-HmacBase64 $config.managementKey "discovery`n$($message.nonce)`n$($config.deviceId)`n$hostname`n$mac"
                     $uwfState = Get-UwfState
                     $capabilities = Get-UwfCapabilities
+                    $display = Get-LanPowerRuntimeSnapshot
+                    if ($display.available) { $capabilities += ',sessionlock,media' }
                     $stateSignature = Get-HmacBase64 $config.managementKey "state`n$($message.nonce)`n$($config.deviceId)`n$AgentVersion`n$uwfState`n$capabilities"
                     $update = Get-AgentUpdateStatus
                     $updateSignature = Get-HmacBase64 $config.managementKey "update`n$($message.nonce)`n$($config.deviceId)`n$AgentVersionCode`n$($update.latestVersion)`n$($update.status)`n$($update.message)"
+                    $lockSignature = Get-HmacBase64 $config.managementKey "lockstate`n$($message.nonce)`n$($config.deviceId)`n$($display.lockState)`n$($display.mediaVersion)`n$($display.mediaPort)`n$($display.mediaCertSha256)"
                     Send-JsonDatagram -Client $udp -Remote $remote -Value ([ordered]@{
                         type = 'discovery'
                         requestNonce = $message.nonce
@@ -299,6 +341,11 @@ try {
                         updateStatus = $update.status
                         updateMessage = $update.message
                         updateSignature = $updateSignature
+                        lockState = $display.lockState
+                        mediaVersion = $display.mediaVersion
+                        mediaPort = $display.mediaPort
+                        mediaCertSha256 = $display.mediaCertSha256
+                        lockSignature = $lockSignature
                         signature = $responseSignature
                     })
                     continue
@@ -325,13 +372,14 @@ try {
                 if (-not (Test-FixedTimeEqual $message.signature $expected)) { continue }
                 $usedNonces[[string]$message.nonce] = $now
 
-                if ($message.action -notin @('shutdown', 'restart', 'freeze', 'unfreeze', 'wake')) {
+                if ($message.action -notin @('shutdown', 'restart', 'freeze', 'unfreeze', 'wake', 'lock', 'unlock')) {
                     Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'rejected' -Message 'Unsupported action.'
                     continue
                 }
-                if ($message.action -in @('freeze', 'unfreeze', 'wake')) {
+                if ($message.action -in @('freeze', 'unfreeze', 'wake', 'lock', 'unlock')) {
                     try {
                         $result = if ($message.action -eq 'wake') { Invoke-WakeRelay -Mac $message.targetMac }
+                            elseif ($message.action -in @('lock', 'unlock')) { Invoke-LanPowerSessionLock -Action $message.action }
                             else { Invoke-UwfAction -Action $message.action }
                         Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'accepted' -Message $result
                     }
@@ -357,5 +405,6 @@ try {
     finally { $udp.Dispose() }
 }
 finally {
+    if ($script:DisplayRuntime) { $script:DisplayRuntime.Dispose() }
     if ($mutex) { $mutex.Dispose() }
 }

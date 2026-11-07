@@ -26,6 +26,7 @@ async function startAgent(t, options = {}) {
   const deviceId = crypto.randomUUID();
   await fs.writeFile(path.join(root, 'config.json'), JSON.stringify({ managementKey: key, deviceId, port }));
   if (options.uwfFailure) await fs.writeFile(path.join(root, 'fail-uwf'), '1');
+  if (options.lockFailure) await fs.writeFile(path.join(root, 'fail-lock'), '1');
   const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'Agent-Harness.ps1'), '-AgentPath', path.join(__dirname, '..', 'client', 'StandaloneAgent.ps1'), '-TestRoot', root], { stdio: ['ignore', 'pipe', 'pipe'] });
   let output = ''; let errors = '';
   child.stderr.on('data', chunk => { errors += chunk; });
@@ -62,9 +63,10 @@ test('real agent ignores malformed, oversized, unsigned and wrongly signed disco
   const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
   assert.equal(reply.type, 'discovery'); assert.equal(reply.requestNonce, nonce); assert.equal(reply.deviceId, agent.deviceId);
   assert.equal(reply.signature, sign(agent.key, `discovery\n${nonce}\n${reply.deviceId}\n${reply.hostname}\n${reply.mac}`));
-  assert.equal(reply.capabilities, 'power,uwf,wolrelay');
+  assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media']));
   assert.equal(reply.stateSignature, sign(agent.key, `state\n${nonce}\n${reply.deviceId}\n${reply.agentVersion}\n${reply.uwf}\n${reply.capabilities}`));
-  assert.equal(reply.clientVersionCode, 9);
+  assert.equal(reply.lockSignature, sign(agent.key, `lockstate\n${nonce}\n${reply.deviceId}\n${reply.lockState}\n${reply.mediaVersion}\n${reply.mediaPort}\n${reply.mediaCertSha256}`));
+  assert.equal(reply.clientVersionCode, 10);
   assert.equal(reply.updateSignature, sign(agent.key, `update\n${nonce}\n${reply.deviceId}\n${reply.clientVersionCode}\n${reply.latestVersion}\n${reply.updateStatus}\n${reply.updateMessage}`));
 });
 
@@ -156,4 +158,36 @@ test('authenticated VPN Wake-on-LAN relay binds the target MAC and leaves the ag
   assert.equal(await agent.exchange(request), null, 'relay replay must not send another magic packet');
   const nonce = crypto.randomUUID();
   assert.equal((await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000)).deviceId, agent.deviceId);
+});
+
+test('lock and unlock require authentication, confirm signed display state and never invoke real interactive UI', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t);
+  for (const [action, expectedState] of [['lock', 'locked'], ['unlock', 'unlocked']]) {
+    const forged = command(crypto.randomBytes(32).toString('base64'), agent.deviceId, { action });
+    assert.equal(await agent.exchange(forged), null);
+    const request = command(agent.key, agent.deviceId, { action });
+    const reply = await agent.exchange(request, 3000);
+    assert.equal(reply.status, 'accepted');
+    assert.equal(reply.detailSignature, sign(agent.key, `ack-detail\n${request.requestId}\naccepted\n${reply.message}`));
+    const nonce = crypto.randomUUID();
+    const state = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
+    assert.equal(state.lockState, expectedState);
+    assert.equal(state.lockSignature, sign(agent.key, `lockstate\n${nonce}\n${state.deviceId}\n${expectedState}\n${state.mediaVersion}\n${state.mediaPort}\n${state.mediaCertSha256}`));
+    assert.match(agent.output(), new RegExp(`TEST_SESSION_LOCK=${action}`));
+    assert.equal(await agent.exchange(request), null, 'session-lock replay must not execute again');
+  }
+  assert.doesNotMatch(agent.output(), /TEST_POWER_ACTION/);
+});
+
+test('missing interactive display returns signed lock failure without claiming a locked screen', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t, { lockFailure: true });
+  const request = command(agent.key, agent.deviceId, { action: 'lock' });
+  const reply = await agent.exchange(request, 3000);
+  assert.equal(reply.status, 'rejected');
+  assert.match(reply.message, /TEST_LOCK_UI_UNAVAILABLE/);
+  assert.equal(reply.detailSignature, sign(agent.key, `ack-detail\n${request.requestId}\nrejected\n${reply.message}`));
+  const nonce = crypto.randomUUID();
+  const state = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
+  assert.equal(state.lockState, 'unlocked');
+  assert.doesNotMatch(agent.output(), /TEST_SESSION_LOCK|TEST_POWER_ACTION/);
 });

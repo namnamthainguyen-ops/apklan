@@ -61,6 +61,8 @@ public final class MainActivity extends Activity {
     private SecureKeyStore keys;
     private RoomRepository repository;
     private LanTransport transport;
+    private RoomMediaStorage mediaStorage;
+    private final MediaTransfer mediaTransfer = new MediaTransfer();
     private AppUpdater updater;
     private Button updateMenuButton;
     private PopupMenu updateMenu;
@@ -77,6 +79,9 @@ public final class MainActivity extends Activity {
     private Button refreshButton;
     private String roomId;
     private String deviceId;
+    private boolean showingMedia;
+    private String importRoomId;
+    private static final int PICK_MEDIA = 301;
     private String statusMessage = "Cùng mạng LAN • Tự làm mới khoảng 20 giây khi mở app";
     private boolean busy;
     private boolean visible;
@@ -99,6 +104,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         keys = new SecureKeyStore(this);
         repository = new RoomRepository(this, keys);
+        mediaStorage = new RoomMediaStorage(this);
         // The opt-in fixture route is limited to debug builds on Android emulators.
         boolean emulator = Build.FINGERPRINT.contains("generic") || Build.MODEL.contains("sdk_gphone") || Build.HARDWARE.contains("ranchu") || Build.HARDWARE.contains("goldfish");
         boolean ciFixture = BuildConfig.DEBUG && emulator && getIntent().getBooleanExtra("lanpower_ci", false);
@@ -115,6 +121,8 @@ public final class MainActivity extends Activity {
         if (state != null) {
             roomId = state.getString("roomId");
             deviceId = state.getString("deviceId");
+            showingMedia = state.getBoolean("showingMedia");
+            importRoomId = state.getString("importRoomId");
             ArrayList<String> savedSelection = state.getStringArrayList("selected");
             if (savedSelection != null) selected.addAll(savedSelection);
         }
@@ -138,6 +146,8 @@ public final class MainActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("roomId", roomId);
         state.putString("deviceId", deviceId);
+        state.putBoolean("showingMedia", showingMedia);
+        state.putString("importRoomId", importRoomId);
         state.putStringArrayList("selected", new ArrayList<>(selected));
         super.onSaveInstanceState(state);
     }
@@ -147,6 +157,7 @@ public final class MainActivity extends Activity {
         handler.removeCallbacksAndMessages(null);
         if (updateMenu != null) updateMenu.dismiss();
         transport.close();
+        mediaTransfer.close();
         updater.close();
         executor.shutdownNow();
         super.onDestroy();
@@ -267,10 +278,10 @@ public final class MainActivity extends Activity {
         selectionSummary = null;
         selectAllBox = null;
         RoomModel room = rooms.get(roomId);
-        if (room == null) { roomId = null; deviceId = null; }
+        if (room == null) { roomId = null; deviceId = null; showingMedia = false; }
         ManagedDevice device = room == null ? null : room.devices.get(deviceId);
         if (device == null) deviceId = null;
-        title.setText(device != null ? device.hostname : room != null ? room.name : "Các phòng");
+        title.setText(showingMedia && room != null ? "Quảng cáo • " + room.name : device != null ? device.hostname : room != null ? room.name : "Các phòng");
         status.setText(statusMessage);
         progress.setVisibility(busy ? View.VISIBLE : View.GONE);
         backButton.setVisibility(room == null ? View.GONE : View.VISIBLE);
@@ -284,6 +295,8 @@ public final class MainActivity extends Activity {
             }
             for (RoomModel value : rooms.values()) content.addView(roomCard(value));
             content.addView(note("Máy đã lưu nhưng không phản hồi lần quét sẽ hiển thị Offline / chưa phản hồi. Máy đang tắt và chưa từng lưu cần được bật một lần để app nhận MAC."));
+        } else if (showingMedia) {
+            renderMedia(room);
         } else if (device != null) {
             renderDetail(room, device);
         } else {
@@ -305,6 +318,7 @@ public final class MainActivity extends Activity {
             if (busy) return;
             roomId = room.id;
             deviceId = null;
+            showingMedia = false;
             selected.clear();
             render();
         });
@@ -322,6 +336,10 @@ public final class MainActivity extends Activity {
         network.setEnabled(!busy);
         network.setOnClickListener(view -> editNetwork(room));
         content.addView(network, matchWrap());
+        Button media = button("Quảng cáo riêng của phòng", BLUE, R.id.room_media);
+        media.setEnabled(!busy);
+        media.setOnClickListener(view -> { showingMedia = true; deviceId = null; render(); });
+        content.addView(media, matchWrap());
         if (!room.scanError.isEmpty()) content.addView(note("Lần quét thất bại, trạng thái hiện tại chưa xác định: " + room.scanError));
         CheckBox all = new CheckBox(this);
         selectAllBox = all;
@@ -363,7 +381,8 @@ public final class MainActivity extends Activity {
         heading.addView(name, weighted());
         heading.addView(text(presence(room, device), 12, room.scanError.isEmpty() && device.online ? GREEN : RED));
         card.addView(heading, matchWrap());
-        card.addView(text(device.ip + "  •  " + device.mac + "\nUWF C: " + device.uwfDescription(), 13, Color.DKGRAY), matchWrap());
+        card.addView(text(device.ip + "  •  " + device.mac + "\nUWF C: " + device.uwfDescription()
+                + "\nMàn hình: " + device.lockDescription() + "\nQuảng cáo: " + mediaStatus(room, device), 13, Color.DKGRAY), matchWrap());
         card.addView(text("Chạm để xem chi tiết và thao tác", 12, BLUE), matchWrap());
         View.OnClickListener open = view -> {
             if (!busy) { deviceId = device.id; render(); }
@@ -378,6 +397,7 @@ public final class MainActivity extends Activity {
         info.addView(text("Hostname: " + device.hostname + "\nIP: " + device.ip + "\nMAC: " + device.mac + "\nTrạng thái: " + presence(room, device)
                 + "\nPhản hồi gần nhất: " + (device.lastSeen == 0 ? "Chưa biết" : DateFormat.getDateTimeInstance().format(new Date(device.lastSeen)))
                 + "\nUWF ổ C: " + device.uwfDescription() + "\nAgent: " + (device.stateAuthenticated ? device.agentVersion : "Bản cũ / chưa xác thực trạng thái")
+                + "\nMàn hình: " + device.lockDescription() + "\nQuảng cáo phòng: " + mediaStatus(room, device)
                 + "\nCập nhật Windows: " + (device.updateAuthenticated ? "Mã " + device.clientVersionCode + " • Mới nhất " + device.latestVersion + " • " + device.updateStatus + "\n" + device.updateMessage : "Chưa có thông tin đã xác thực"), 15, NAVY), matchWrap());
         content.addView(info);
         if (!device.supportsUwf()) content.addView(note("Chưa xác thực được UWF. Bộ cài client mới tự chuẩn bị UWF: cài hoặc cập nhật client rồi khởi động lại nếu được yêu cầu. Windows Home/Pro không hỗ trợ tính năng này."));
@@ -386,11 +406,12 @@ public final class MainActivity extends Activity {
     }
 
     private void addActionButtons(LinearLayout parent, RoomModel room, ManagedDevice oneDevice) {
-        String[] actions = {"wake", "shutdown", "restart", "freeze", "unfreeze"};
-        int[] ids = {R.id.action_wake, R.id.action_shutdown, R.id.action_restart, R.id.action_freeze, R.id.action_unfreeze};
-        int[] colors = {GREEN, RED, AMBER, BLUE, NAVY};
+        String[] actions = {"wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock"};
+        int[] ids = {R.id.action_wake, R.id.action_shutdown, R.id.action_restart, R.id.action_freeze, R.id.action_unfreeze, R.id.action_lock, R.id.action_unlock};
+        int[] colors = {GREEN, RED, AMBER, BLUE, NAVY, RED, GREEN};
         LinearLayout first = row();
         LinearLayout second = row();
+        LinearLayout third = row();
         for (int i = 0; i < actions.length; i++) {
             String action = actions[i];
             Button button = button(actionLabel(action), colors[i], ids[i]);
@@ -400,10 +421,11 @@ public final class MainActivity extends Activity {
                 confirmAction(room, targets, action);
             });
             if (oneDevice == null) selectionButtons.add(button);
-            (i < 3 ? first : second).addView(button, weighted());
+            (i < 3 ? first : i < 5 ? second : third).addView(button, weighted());
         }
         parent.addView(first, matchWrap());
         parent.addView(second, matchWrap());
+        parent.addView(third, matchWrap());
     }
 
     private void updateSelection() {
@@ -421,6 +443,7 @@ public final class MainActivity extends Activity {
         if (busy || targets.isEmpty()) return;
         String explanation = "wake".equals(action) ? "Magic Packet chỉ gửi yêu cầu bật; cần quét lại để xác nhận. Qua VPN cần ít nhất một máy relay đang online trong LAN đích hoặc router hỗ trợ WOL."
                 : ("freeze".equals(action) || "unfreeze".equals(action)) ? "Thay đổi UWF C: có hiệu lực sau khi khởi động lại. App không tự khởi động lại máy."
+                : ("lock".equals(action) || "unlock".equals(action)) ? "Khóa/mở phiên sử dụng của phòng máy. Khi khóa, màn hình người dùng hiển thị quảng cáo đã gửi. Đây không phải khóa đăng nhập Windows. App sẽ xác nhận trạng thái thực sau lệnh."
                 : "Các máy Offline / chưa rõ trạng thái sẽ được bỏ qua. Hãy lưu công việc trước khi tắt hoặc khởi động lại.";
         showPrompt(new AlertDialog.Builder(this).setTitle(actionLabel(action) + " • " + targets.size() + " máy")
                 .setMessage("Phòng: " + room.name + "\n" + explanation).setNegativeButton("Hủy", null)
@@ -435,10 +458,15 @@ public final class MainActivity extends Activity {
         ManagedDevice eligibleRelay = null;
         for (ManagedDevice candidate : room.devices.values()) if (candidate.online && !scanFailed && candidate.supports("wolrelay")) { eligibleRelay = candidate.copy(); break; }
         final ManagedDevice relay = eligibleRelay;
+        final boolean lockAction = "lock".equals(action) || "unlock".equals(action);
+        final List<String> confirmationTargets;
+        try { confirmationTargets = lockAction ? scanTargets(room) : Collections.emptyList(); }
+        catch (Exception error) { statusMessage = "Không xác nhận được màn hình: " + readable(error); render(); return; }
         setBusy(true, "Đang " + actionLabel(action) + " cho " + targets.size() + " máy…");
         executor.execute(() -> {
             List<String> results = new ArrayList<>();
             int successes = 0;
+            Map<String, ManagedDevice> waitingLock = new LinkedHashMap<>();
             for (int index = 0; index < targets.size(); index++) {
                 ManagedDevice device = targets.get(index);
                 final int position = index + 1;
@@ -456,6 +484,7 @@ public final class MainActivity extends Activity {
                     if (("freeze".equals(action) || "unfreeze".equals(action)) && !device.supportsUwf()) {
                         throw new IllegalStateException("UWF chưa sẵn sàng hoặc agent cũ. Cài lại client mới để tự chuẩn bị UWF, khởi động lại nếu được yêu cầu rồi quét");
                     }
+                    if (lockAction && (!device.lockAuthenticated || !device.supports("sessionlock"))) throw new IllegalStateException("Cần cập nhật client có màn hình khóa/quảng cáo");
                     String result;
                     if ("wake".equals(action)) {
                         String localResult = null;
@@ -468,10 +497,28 @@ public final class MainActivity extends Activity {
                             result = localResult;
                         }
                     } else result = transport.command(key, device, action);
-                    successes++;
-                    results.add(device.hostname + ": OK — " + result);
+                    if (lockAction) waitingLock.put(device.id, device);
+                    else { successes++; results.add(device.hostname + ": OK — " + result); }
                 } catch (Exception error) {
-                    results.add(device.hostname + ": LỖI — " + readable(error));
+                    results.add(device.hostname + ": LỖI — " + (lockAction ? roomFeatureError(error) : readable(error)));
+                }
+            }
+            if (!waitingLock.isEmpty()) {
+                try {
+                    List<ManagedDevice> confirmed = transport.discover(key, confirmationTargets);
+                    Map<String, ManagedDevice> byId = new LinkedHashMap<>();
+                    for (ManagedDevice value : confirmed) byId.put(value.id, value);
+                    String expected = "lock".equals(action) ? "locked" : "unlocked";
+                    for (ManagedDevice requested : waitingLock.values()) {
+                        ManagedDevice actual = byId.get(requested.id);
+                        if (actual != null && actual.lockAuthenticated && expected.equals(actual.lockState)) {
+                            successes++;
+                            results.add(requested.hostname + ": OK — " + actual.lockDescription());
+                        } else results.add(requested.hostname + ": CHƯA XÁC NHẬN — " + (actual == null ? "Máy chưa phản hồi" : actual.lockDescription()));
+                    }
+                    postResult(() -> { room.applyScan(confirmed, System.currentTimeMillis()); try { repository.save(rooms.values()); } catch (Exception ignored) { } });
+                } catch (Exception error) {
+                    for (ManagedDevice requested : waitingLock.values()) results.add(requested.hostname + ": CHƯA XÁC NHẬN — " + readable(error));
                 }
             }
             final int successCount = successes;
@@ -542,6 +589,7 @@ public final class MainActivity extends Activity {
                     catch (Exception error) { rooms.clear(); rooms.putAll(previous); setBusy(false, "Không xóa được phòng: " + readable(error)); return; }
                     try {
                         keys.deleteRoom(room.id);
+                        mediaStorage.cleanUnused(room.id, new RoomPlaylist());
                         statusMessage = "Đã xóa phòng " + room.name + " khỏi app";
                     } catch (Exception error) { statusMessage = "Đã xóa danh sách phòng; chưa dọn được khóa: " + readable(error); }
                     render();
@@ -573,10 +621,7 @@ public final class MainActivity extends Activity {
                     if (destroyed) return;
                     try {
                         if (room.key.isEmpty()) throw new IllegalStateException("Không đọc được khóa mã hóa của phòng");
-                        Set<String> unicast = new LinkedHashSet<>(VpnTargets.expand(room.networkTargets));
-                        for (ManagedDevice saved : room.devices.values()) if (VpnTargets.isPrivateAddress(saved.ip)) unicast.add(saved.ip);
-                        if (unicast.size() > 1024) throw new IllegalArgumentException("Đích VPN và IP máy đã lưu vượt 1024 địa chỉ/phòng. Thu hẹp CIDR trong Mạng LAN/VPN");
-                        found.put(room.id, transport.discover(room.key, new ArrayList<>(unicast)));
+                        found.put(room.id, transport.discover(room.key, scanTargets(room)));
                     } catch (Exception error) { failures.put(room.id, readable(error)); }
                 }
             } catch (Exception error) {
@@ -599,9 +644,177 @@ public final class MainActivity extends Activity {
 
     private void navigateBack() {
         if (busy) return;
-        if (deviceId != null) deviceId = null;
+        if (showingMedia) showingMedia = false;
+        else if (deviceId != null) deviceId = null;
         else { roomId = null; selected.clear(); }
         render();
+    }
+
+    private static List<String> scanTargets(RoomModel room) {
+        Set<String> unicast = new LinkedHashSet<>(VpnTargets.expand(room.networkTargets));
+        for (ManagedDevice saved : room.devices.values()) if (VpnTargets.isPrivateAddress(saved.ip)) unicast.add(saved.ip);
+        if (unicast.size() > 1024) throw new IllegalArgumentException("Đích VPN và IP đã lưu vượt 1024 địa chỉ/phòng. Thu hẹp CIDR trong Mạng LAN/VPN");
+        return new ArrayList<>(unicast);
+    }
+
+    private String mediaStatus(RoomModel room, ManagedDevice device) {
+        if ("none".equals(room.playlist.version)) return "Phòng chưa chọn nội dung";
+        if (!device.online || !room.scanError.isEmpty()) return "Chờ gửi khi máy online; chọn Gửi lại cho phòng";
+        if (!device.lockAuthenticated) return "Chưa xác thực / cần cập nhật client";
+        return room.playlist.version.equals(device.mediaVersion) ? "Đã có nội dung mới nhất của phòng" : "Chưa có bản mới của phòng; cần gửi lại";
+    }
+
+    private void renderMedia(RoomModel room) {
+        content.addView(note("Nội dung chỉ dành cho phòng “" + room.name + "”. Thứ tự từ trên xuống; ảnh mặc định 10 giây, video phát đến hết rồi chuyển mục. Tối đa 20 tệp, 128 MiB mỗi tệp và 256 MiB mỗi phòng."));
+        LinearLayout actions = row();
+        Button add = button("+ Chọn ảnh / video", BLUE, R.id.media_add);
+        add.setEnabled(!busy && room.playlist.files.size() < RoomPlaylist.MAX_FILES);
+        add.setOnClickListener(view -> pickMedia(room));
+        Button send = button("Gửi lại cho cả phòng", GREEN, R.id.media_send);
+        send.setEnabled(!busy && !"none".equals(room.playlist.version) && !room.devices.isEmpty());
+        send.setOnClickListener(view -> confirmMediaSend(room));
+        actions.addView(add, weighted());
+        actions.addView(send, weighted());
+        content.addView(actions, matchWrap());
+        content.addView(text("Đã chọn " + room.playlist.files.size() + " tệp • " + (room.playlist.totalBytes() / (1024 * 1024)) + " MiB", 14, NAVY));
+        for (int index = 0; index < room.playlist.files.size(); index++) {
+            int position = index;
+            MediaItem item = room.playlist.files.get(index);
+            LinearLayout entry = card();
+            entry.setContentDescription("media:" + item.name);
+            entry.addView(text((index + 1) + ". " + item.name, 15, NAVY), matchWrap());
+            entry.addView(note(("video/mp4".equals(item.type) ? "Video MP4 • phát đến hết" : "Ảnh • " + item.durationSeconds + " giây") + " • " + (item.length / 1024) + " KiB"));
+            LinearLayout controls = row();
+            Button up = button("Lên", NAVY, View.NO_ID);
+            up.setContentDescription("Lên " + item.name);
+            up.setEnabled(!busy && index > 0);
+            up.setOnClickListener(view -> { RoomPlaylist next = room.playlist.copy(); Collections.swap(next.files, position, position - 1); savePlaylist(room, next); });
+            Button down = button("Xuống", NAVY, View.NO_ID);
+            down.setContentDescription("Xuống " + item.name);
+            down.setEnabled(!busy && index < room.playlist.files.size() - 1);
+            down.setOnClickListener(view -> { RoomPlaylist next = room.playlist.copy(); Collections.swap(next.files, position, position + 1); savePlaylist(room, next); });
+            Button duration = button("Thời lượng", BLUE, View.NO_ID);
+            duration.setEnabled(!busy && !"video/mp4".equals(item.type));
+            duration.setOnClickListener(view -> editDuration(room, position));
+            Button remove = button("Xóa", RED, View.NO_ID);
+            remove.setEnabled(!busy);
+            remove.setOnClickListener(view -> { RoomPlaylist next = room.playlist.copy(); next.files.remove(position); savePlaylist(room, next); });
+            controls.addView(up, weighted()); controls.addView(down, weighted()); controls.addView(duration, weighted()); controls.addView(remove, weighted());
+            entry.addView(controls, matchWrap());
+            content.addView(entry);
+        }
+        if (room.playlist.files.isEmpty()) content.addView(note("Chưa chọn ảnh/video. Nội dung phòng khác không được dùng thay cho phòng này."));
+        content.addView(note("Gửi cập nhật chỉ tới máy online trong phòng này. Máy đang tắt/chưa phản hồi vẫn giữ nội dung cũ và hiển thị chờ gửi. Khi máy online, chọn Gửi lại cho cả phòng. Nội dung được lưu riêng trên máy con; giữ nguyên trạng thái đóng băng C:."));
+        for (ManagedDevice device : room.devices.values()) content.addView(text(device.hostname + ": " + mediaStatus(room, device), 13, Color.DKGRAY), matchWrap());
+    }
+
+    private void savePlaylist(RoomModel room, RoomPlaylist next) {
+        if (busy) return;
+        RoomPlaylist previous = room.playlist;
+        try {
+            next.changed();
+            next.validate();
+            room.playlist = next;
+            repository.save(rooms.values());
+            mediaStorage.cleanUnused(room.id, next);
+            statusMessage = "Đã lưu thứ tự nội dung riêng của phòng " + room.name + ". Chọn Gửi lại để cập nhật máy con";
+        } catch (Exception error) { room.playlist = previous; statusMessage = "Chưa lưu được quảng cáo: " + readable(error); }
+        render();
+    }
+
+    private void editDuration(RoomModel room, int position) {
+        EditText seconds = new EditText(this);
+        seconds.setInputType(InputType.TYPE_CLASS_NUMBER);
+        seconds.setText(String.valueOf(room.playlist.files.get(position).durationSeconds));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Thời lượng ảnh (1–600 giây)").setView(seconds)
+                .setNegativeButton("Hủy", null).setPositiveButton("Lưu", null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            try {
+                int value = Integer.parseInt(seconds.getText().toString());
+                if (value < 1 || value > 600) throw new IllegalArgumentException();
+                RoomPlaylist next = room.playlist.copy(); next.files.get(position).durationSeconds = value;
+                dialog.dismiss(); savePlaylist(room, next);
+            } catch (Exception error) { seconds.setError("Nhập từ 1 đến 600 giây"); }
+        }));
+        showPrompt(dialog);
+    }
+
+    private void pickMedia(RoomModel room) {
+        if (busy) return;
+        importRoomId = room.id;
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
+                .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/jpeg", "image/png", "video/mp4"}).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        try { startActivityForResult(pick, PICK_MEDIA); }
+        catch (ActivityNotFoundException error) { importRoomId = null; statusMessage = "Máy chưa có trình chọn tệp phù hợp"; render(); }
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != PICK_MEDIA) return;
+        String targetRoomId = importRoomId;
+        importRoomId = null;
+        if (resultCode != RESULT_OK || data == null) return;
+        RoomModel target = rooms.get(targetRoomId);
+        if (target == null || busy) { statusMessage = "Phòng không còn sẵn sàng; hãy chọn lại nội dung"; render(); return; }
+        List<Uri> sources = new ArrayList<>();
+        if (data.getClipData() != null) for (int i = 0; i < data.getClipData().getItemCount(); i++) sources.add(data.getClipData().getItemAt(i).getUri());
+        else if (data.getData() != null) sources.add(data.getData());
+        final RoomPlaylist snapshot = target.playlist.copy();
+        setBusy(true, "Đang sao chép nội dung riêng cho phòng " + target.name + "…");
+        executor.execute(() -> {
+            try {
+                RoomPlaylist imported = mediaStorage.importFiles(target.id, snapshot, sources);
+                postResult(() -> {
+                    target.playlist = imported;
+                    try {
+                        repository.save(rooms.values()); mediaStorage.cleanUnused(target.id, imported);
+                        setBusy(false, "Đã chọn nội dung cho " + target.name + ". Chọn Gửi lại để cập nhật máy con");
+                    } catch (Exception error) { target.playlist = snapshot; mediaStorage.cleanUnused(target.id, snapshot); setBusy(false, "Không lưu được nội dung: " + readable(error)); }
+                });
+            } catch (Exception error) { mediaStorage.cleanUnused(target.id, snapshot); postResult(() -> setBusy(false, "Không thêm được nội dung: " + readable(error))); }
+        });
+    }
+
+    private void confirmMediaSend(RoomModel room) {
+        if (busy) return;
+        showPrompt(new AlertDialog.Builder(this).setTitle("Cập nhật quảng cáo • " + room.name)
+                .setMessage("Gửi danh sách đang chọn tới tất cả máy online của riêng phòng “" + room.name + "”. Máy offline sẽ chờ gửi lại; nội dung các phòng khác giữ nguyên.")
+                .setNegativeButton("Hủy", null).setPositiveButton("Gửi cho phòng", (dialog, which) -> sendRoomMedia(room)).create());
+    }
+
+    private void sendRoomMedia(RoomModel room) {
+        if (busy || destroyed) return;
+        final String targetRoomId = room.id;
+        final String key = room.key;
+        final RoomPlaylist playlist = room.playlist.copy();
+        final List<ManagedDevice> targets = new ArrayList<>();
+        for (ManagedDevice device : room.devices.values()) targets.add(device.copy());
+        final boolean scanFailed = !room.scanError.isEmpty();
+        setBusy(true, "Đang gửi quảng cáo riêng cho phòng " + room.name + "…");
+        executor.execute(() -> {
+            List<String> results = new ArrayList<>();
+            int successes = 0;
+            for (int i = 0; i < targets.size(); i++) {
+                ManagedDevice target = targets.get(i);
+                if (destroyed) return;
+                if (!target.online || scanFailed) { results.add(target.hostname + ": CHỜ GỬI — Máy offline/chưa phản hồi; chọn gửi lại khi online"); continue; }
+                final int position = i + 1;
+                try {
+                    String result = mediaTransfer.send(targetRoomId, key, target, playlist, mediaStorage, (done, total) -> {
+                        long percent = total == 0 ? 100 : done * 100 / total;
+                        postResult(() -> status.setText("(" + position + "/" + targets.size() + ") " + target.hostname + " • " + percent + "%"));
+                    });
+                    successes++;
+                    results.add(target.hostname + ": OK — " + result);
+                } catch (Exception error) { results.add(target.hostname + ": LỖI — " + roomFeatureError(error)); }
+            }
+            final int successCount = successes;
+            postResult(() -> {
+                setBusy(false, "Đã cập nhật " + successCount + "/" + targets.size() + " máy của phòng " + room.name + ". Quét lại để xác nhận phiên bản");
+                showPrompt(new AlertDialog.Builder(this).setTitle("Quảng cáo • " + room.name).setMessage(String.join("\n\n", results))
+                        .setPositiveButton("Đóng", (dialog, which) -> refresh()).create());
+            });
+        });
     }
 
     private void editNetwork(RoomModel room) {
@@ -725,6 +938,8 @@ public final class MainActivity extends Activity {
             case "restart": return "Khởi động lại";
             case "freeze": return "Đóng băng C:";
             case "unfreeze": return "Bỏ đóng băng C:";
+            case "lock": return "Khóa màn hình";
+            case "unlock": return "Mở màn hình";
             default: throw new IllegalArgumentException("Unsupported action");
         }
     }
@@ -732,6 +947,16 @@ public final class MainActivity extends Activity {
     private void setBusy(boolean value, String message) { busy = value; statusMessage = message; render(); }
     private void postResult(Runnable result) { runOnUiThread(() -> { if (!destroyed) result.run(); }); }
     private static String readable(Exception error) { return error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage(); }
+
+    private static String roomFeatureError(Exception error) {
+        String value = readable(error);
+        if (value.contains("LOCK_UI_UNAVAILABLE")) return "Chưa có phiên người dùng để hiển thị. Yêu cầu khóa/mở đã được lưu và sẽ áp dụng khi màn hình hoạt động; hiện chưa xác nhận thành công";
+        if (value.contains("LOCK_UI_TIMEOUT")) return "Màn hình chưa xác nhận yêu cầu khóa/mở. Yêu cầu đang chờ; hãy kiểm tra máy và quét lại";
+        if (value.contains("MEDIA_STORAGE") || value.contains("MEDIA_ROOT")) return "Máy chưa có nơi lưu quảng cáo bền vững. Cài lại client mới và kiểm tra ổ dữ liệu không đóng băng";
+        if (value.contains("MEDIA_TOO_LARGE")) return "Nội dung vượt giới hạn dung lượng của máy";
+        if (value.contains("MEDIA_HASH") || value.contains("MEDIA_SIGNATURE")) return "Không xác minh được nội dung gửi tới máy; nội dung cũ được giữ, hãy chọn gửi lại";
+        return value;
+    }
 
     private LinearLayout card() {
         LinearLayout value = column();

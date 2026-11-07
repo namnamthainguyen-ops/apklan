@@ -91,6 +91,19 @@ final class LanTransport {
                             device.updateAuthenticated = true;
                         }
                     } catch (IllegalArgumentException invalidUpdate) { }
+                    try {
+                        String lockState = response.optString("lockState");
+                        String mediaVersion = response.optString("mediaVersion", "none");
+                        int mediaPort = response.optInt("mediaPort", 0);
+                        String mediaCert = response.optString("mediaCertSha256");
+                        if (LanProtocol.verify(key, LanProtocol.lockStateCanonical(nonce, id, lockState, mediaVersion, mediaPort, mediaCert), response.optString("lockSignature"))) {
+                            device.lockState = lockState;
+                            device.mediaVersion = mediaVersion;
+                            device.mediaPort = mediaPort;
+                            device.mediaCertSha256 = mediaCert;
+                            device.lockAuthenticated = true;
+                        }
+                    } catch (IllegalArgumentException invalidLockState) { }
                     found.put(id, device);
                 } catch (SocketTimeoutException ignored) { }
                 catch (JSONException | IllegalArgumentException malformed) {
@@ -132,7 +145,8 @@ final class LanTransport {
         try (DatagramSocket socket = openSocket()) {
             socket.connect(InetAddress.getByName(device.ip), PORT);
             socket.send(new DatagramPacket(bytes, bytes.length, socket.getInetAddress(), PORT));
-            long timeout = ("freeze".equals(action) || "unfreeze".equals(action)) ? 30_000_000_000L : 3_500_000_000L;
+            long timeout = ("freeze".equals(action) || "unfreeze".equals(action)) ? 30_000_000_000L
+                    : ("lock".equals(action) || "unlock".equals(action)) ? 15_000_000_000L : 3_500_000_000L;
             long deadline = System.nanoTime() + timeout;
             while (System.nanoTime() < deadline && !closed) {
                 socket.setSoTimeout((int) Math.max(1, (deadline - System.nanoTime()) / 1_000_000L));
@@ -147,7 +161,7 @@ final class LanTransport {
                     String message = response.optString("message");
                     boolean verifiedDetail = LanProtocol.verifyAckDetail(key, requestId, status, message, response.optString("detailSignature"));
                     if (!"accepted".equals(status)) throw new IOException(verifiedDetail ? message : "Agent từ chối lệnh (không có chi tiết đã xác thực)");
-                    if ("freeze".equals(action) || "unfreeze".equals(action) || "wake".equals(action)) {
+                    if ("freeze".equals(action) || "unfreeze".equals(action) || "wake".equals(action) || "lock".equals(action) || "unlock".equals(action)) {
                         if (!verifiedDetail) throw new IOException("Chưa xác thực được chi tiết kết quả; cần agent mới và quét lại trạng thái");
                         return message;
                     }

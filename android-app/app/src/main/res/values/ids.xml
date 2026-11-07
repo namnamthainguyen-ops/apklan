@@ -1,4 +1,9 @@
 <resources>
+    <item name="room_media" type="id" />
+    <item name="media_add" type="id" />
+    <item name="media_send" type="id" />
+    <item name="action_lock" type="id" />
+    <item name="action_unlock" type="id" />
     <item name="network_settings" type="id" />
     <item name="network_targets_input" type="id" />
     <item name="update_status" type="id" />

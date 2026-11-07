@@ -58,7 +58,7 @@ final class LanProtocol {
         requireField(requestId);
         requireField(deviceId);
         requireField(nonce);
-        if (!"shutdown".equals(action) && !"restart".equals(action) && !"freeze".equals(action) && !"unfreeze".equals(action)) {
+        if (!"shutdown".equals(action) && !"restart".equals(action) && !"freeze".equals(action) && !"unfreeze".equals(action) && !"lock".equals(action) && !"unlock".equals(action)) {
             throw new IllegalArgumentException("Unsupported action");
         }
         return "command\n" + requestId + "\n" + deviceId + "\n" + action + "\n" + timestamp + "\n" + nonce;
@@ -108,6 +108,27 @@ final class LanProtocol {
         magicPacket(value);
         String hex = value.replace(":", "").replace("-", "").toUpperCase(java.util.Locale.ROOT);
         return hex.substring(0, 2) + ":" + hex.substring(2, 4) + ":" + hex.substring(4, 6) + ":" + hex.substring(6, 8) + ":" + hex.substring(8, 10) + ":" + hex.substring(10, 12);
+    }
+
+    static String lockStateCanonical(String nonce, String deviceId, String state, String version, int port, String cert) {
+        requireField(nonce);
+        requireField(deviceId);
+        if (!java.util.Arrays.asList("locked", "unlocked", "pending", "ui-offline").contains(state)) throw new IllegalArgumentException("Invalid lock state");
+        if (!("none".equals(version) || version.matches("[a-f0-9]{32}")) || !(port == 0 || port == 17842)
+                || !(cert.isEmpty() || cert.matches("[a-f0-9]{64}"))) throw new IllegalArgumentException("Invalid media state");
+        return "lockstate\n" + nonce + "\n" + deviceId + "\n" + state + "\n" + version + "\n" + port + "\n" + cert;
+    }
+
+    static String mediaCanonical(String deviceId, long timestamp, String nonce, String version, long totalBytes, String payloadSha256) {
+        requireField(deviceId);
+        if (!nonce.matches("[a-f0-9]{32}") || !version.matches("[a-f0-9]{32}") || totalBytes < 0 || totalBytes > RoomPlaylist.MAX_TOTAL_BYTES || !payloadSha256.matches("[a-f0-9]{64}")) throw new IllegalArgumentException("Invalid media request");
+        return "media\n" + deviceId + "\n" + timestamp + "\n" + nonce + "\n" + version + "\n" + totalBytes + "\n" + payloadSha256;
+    }
+
+    static String mediaResultCanonical(String nonce, String deviceId, String version, String status, String message) {
+        requireField(nonce); requireField(deviceId); requireField(version);
+        if (!("accepted".equals(status) || "rejected".equals(status)) || message == null || message.length() > 2048) throw new IllegalArgumentException("Invalid media acknowledgement");
+        return "media-result\n" + nonce + "\n" + deviceId + "\n" + version + "\n" + status + "\n" + message;
     }
 
     static byte[] magicPacket(String mac) {

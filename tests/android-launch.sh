@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Every device command is bounded, including failure evidence collection.
+adb_binary=$(command -v adb)
+adb() { timeout --kill-after=5s 45s "$adb_binary" "$@"; }
+curl() { command curl --connect-timeout 5 --max-time 15 "$@"; }
+
 mkdir -p emulator-evidence
 sudo python3 tests/mock-lan-agent.py > emulator-evidence/mock-agent.log 2>&1 &
 fixture_pid=$!
@@ -8,7 +13,7 @@ cleanup() {
   local result=$?
   curl -fsS http://127.0.0.1:17841/state > emulator-evidence/mock-state.json || true
   if [ "$result" -ne 0 ]; then
-    timeout 15s adb shell uiautomator dump /sdcard/lanpower-failed.xml || true
+    timeout --kill-after=5s 15s "$adb_binary" shell uiautomator dump /sdcard/lanpower-failed.xml || true
     adb pull /sdcard/lanpower-failed.xml emulator-evidence/failed-ui.xml || true
     adb exec-out screencap -p > emulator-evidence/failed-screenshot.png || true
     adb logcat -d > emulator-evidence/failed-logcat.txt || true
@@ -58,7 +63,7 @@ adb uninstall com.lanpower.standalone
 adb install release/LanPowerStandalone-1.0.0-debug.apk
 adb shell am start -W -n com.lanpower.standalone/.MainActivity
 python3 tests/android-ui-smoke.py --prepare-key-only
-adb install -r release/RoomTN20-1.2.3.apk
+adb install -r release/RoomTN20-1.3.0.apk
 mkdir -p emulator-evidence/published-release-upgrade
 curl -fsS -X POST -H 'Content-Type: application/json' -d '{"devices":{"00000000-0000-4000-8000-000000000004":{"online":false}}}' http://127.0.0.1:17841/set > /dev/null
 adb shell am start -W -n com.lanpower.standalone/.MainActivity | tee emulator-evidence/published-release-upgrade/launch.txt

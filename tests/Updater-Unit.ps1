@@ -65,6 +65,23 @@ try {
     $envelope = New-TestEnvelope $payload $key
     $verified = Read-RoomTN20Manifest $envelope $public
     Assert-True ($verified.windows.versionCode -eq 6) 'Valid RS256 manifest must retain its signed version.'
+    $mediaPayload = New-TestPayload
+    $mediaPayload.windows.version = '1.3.0'
+    $mediaPayload.windows.versionCode = 10
+    Assert-Rejected { Read-RoomTN20Manifest (New-TestEnvelope $mediaPayload $key) $public } 'Version 10 requires signed runtime and player metadata.'
+    $mediaPayload.windows.runtime = @{ url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20.Runtime-1.3.0.dll'; sha256 = ('C' * 64) }
+    $mediaPayload.windows.player = @{ url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20.Player-1.3.0.exe'; sha256 = ('D' * 64) }
+    Assert-True ((Read-RoomTN20Manifest (New-TestEnvelope $mediaPayload $key) $public).windows.versionCode -eq 10) 'Version 10 accepts valid signed runtime and player metadata.'
+    foreach ($field in @('runtime', 'player')) {
+        $previousUrl = $mediaPayload.windows[$field].url
+        $mediaPayload.windows[$field].url = 'https://example.com/untrusted.exe'
+        Assert-Rejected { Read-RoomTN20Manifest (New-TestEnvelope $mediaPayload $key) $public } "Untrusted $field URL must fail even when signed."
+        $mediaPayload.windows[$field].url = $previousUrl
+        $previousHash = $mediaPayload.windows[$field].sha256
+        $mediaPayload.windows[$field].sha256 = 'not-a-hash'
+        Assert-Rejected { Read-RoomTN20Manifest (New-TestEnvelope $mediaPayload $key) $public } "Invalid $field checksum must fail."
+        $mediaPayload.windows[$field].sha256 = $previousHash
+    }
     $tampered = $envelope | ConvertFrom-Json
     $tampered.payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"schemaVersion":1}'))
     Assert-Rejected { Read-RoomTN20Manifest ($tampered | ConvertTo-Json -Compress) $public } 'Tampered payload must fail before use.'

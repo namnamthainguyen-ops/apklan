@@ -444,7 +444,7 @@ tap(lambda node: node.get("content-desc") == "device:CI-A-01",
     lambda tree: any(node.attrib.get("text", "").startswith("Hostname: CI-A-01") for node in tree.iter("node")))
 tree = wait_text("Hostname: CI-A-01")
 action_ids = detail_action_ids()
-for action in ["wake", "shutdown", "restart", "freeze", "unfreeze"]:
+for action in ["wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock"]:
     assert "action_" + action in action_ids, f"Missing detail action: {action}"
 tap(by_id("back"), lambda tree: has_id(tree, "select_all"))
 
@@ -457,6 +457,10 @@ tap(by_id("select_all"), lambda tree: any(by_id("select_all")(node.attrib) and n
 events = bulk("freeze")
 assert all(event["status"] == "accepted" for event in events)
 assert all(device["pending"] is True for device in control()["devices"] if device["id"] in IDS_A)
+bulk("lock")
+assert all(device["locked"] for device in control()["devices"] if device["id"] in IDS_A), "Room lock did not target both selected same-room computers"
+bulk("unlock")
+assert all(not device["locked"] for device in control()["devices"] if device["id"] in IDS_A), "Room unlock did not release the selected computers"
 
 second = sorted(IDS_A)[1]
 control("/set", {"devices": {second: {"failActions": ["unfreeze"]}}})

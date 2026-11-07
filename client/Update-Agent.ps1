@@ -55,6 +55,12 @@ function Read-RoomTN20Manifest {
         $file = $payload.windows.$name
         if (-not (Test-RoomTN20DownloadUrl ([string]$file.url)) -or [string]$file.sha256 -cnotmatch '\A[0-9A-Fa-f]{64}\z') { throw "UPDATE_FILE_INVALID: $name" }
     }
+    if ([int]$payload.windows.versionCode -ge 10) {
+        foreach ($name in @('runtime', 'player')) {
+            $file = $payload.windows.$name
+            if (-not (Test-RoomTN20DownloadUrl ([string]$file.url)) -or [string]$file.sha256 -cnotmatch '\A[0-9A-Fa-f]{64}\z') { throw "UPDATE_FILE_INVALID: $name" }
+        }
+    }
     return $payload
 }
 
@@ -169,6 +175,7 @@ function Invoke-RoomTN20Update {
         }
         [void][IO.Directory]::CreateDirectory($staging, $security)
         $files = @(@('agent', 'StandaloneAgent.ps1'), @('core', 'Install-Core.ps1'), @('updater', 'Update-Agent.ps1'))
+        if ([int]$manifest.windows.versionCode -ge 10) { $files += @(@('runtime', 'RoomTN20.Runtime.dll'), @('player', 'RoomTN20.Player.exe')) }
         foreach ($file in $files) {
             $metadata = $manifest.windows.($file[0])
             $target = Join-Path $staging $file[1]
@@ -182,8 +189,9 @@ function Invoke-RoomTN20Update {
         if (-not (Test-RoomTN20NewerVersion $currentCode ([int]$manifest.windows.versionCode))) { return }
         Assert-LanPowerWritableSystem
         $backups = @{}
-        foreach ($name in @('StandaloneAgent.ps1', 'Install-Core.ps1', 'Update-Agent.ps1', 'Update-PublicKey.xml', 'config.json')) {
-            $backups[$name] = [IO.File]::ReadAllBytes((Join-Path $root $name))
+        foreach ($name in @('StandaloneAgent.ps1', 'Install-Core.ps1', 'Update-Agent.ps1', 'Update-PublicKey.xml', 'config.json', 'RoomTN20.Runtime.dll', 'Display\RoomTN20.Player.exe', 'media-certificate.pfx')) {
+            $path = Join-Path $root $name
+            $backups[$name] = if (Test-Path -LiteralPath $path -PathType Leaf) { [IO.File]::ReadAllBytes($path) } else { $null }
         }
         Write-RoomTN20UpdateStatus $root $currentCode $latest 'updating' 'Installing the verified signed update.'
         try {
@@ -192,6 +200,10 @@ function Invoke-RoomTN20Update {
                 SourceUpdater = (Join-Path $staging 'Update-Agent.ps1'); SourcePublicKey = (Join-Path $staging 'Update-PublicKey.xml');
                 ManagementKey = [string]$config.managementKey; InstallPath = $root; TaskName = [string]$config.agentTaskName; Port = [int]$config.port; SkipUwfPreparation = $true }
             if ($config.PSObject.Properties['vpnNetworks']) { $parameters.VpnNetworks = @($config.vpnNetworks) }
+            if ([int]$manifest.windows.versionCode -ge 10) {
+                $parameters.SourceRuntime = Join-Path $staging 'RoomTN20.Runtime.dll'
+                $parameters.SourcePlayer = Join-Path $staging 'RoomTN20.Player.exe'
+            }
             Invoke-LanPowerInstall @parameters
             $installed = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
             if ([int]$installed.versionCode -ne [int]$manifest.windows.versionCode -or [string]$installed.version -cne $latest) { throw 'UPDATE_INSTALLED_VERSION_MISMATCH' }
@@ -200,7 +212,20 @@ function Invoke-RoomTN20Update {
         catch {
             $failure = $_
             Stop-ScheduledTask -TaskName ([string]$config.agentTaskName) -ErrorAction SilentlyContinue
-            foreach ($name in $backups.Keys) { Set-LanPowerAtomicFile (Join-Path $root $name) $backups[$name] }
+            if (Get-Command Stop-LanPowerDisplay -ErrorAction SilentlyContinue) {
+                $displayTask = [string]$config.agentTaskName + 'Display'
+                Stop-ScheduledTask -TaskName $displayTask -ErrorAction SilentlyContinue
+                Unregister-ScheduledTask -TaskName $displayTask -Confirm:$false -ErrorAction SilentlyContinue
+                Stop-LanPowerDisplay -InstallPath $root
+                Get-NetFirewallRule -DisplayName (Get-LanPowerMediaFirewallRuleName ([string]$config.agentTaskName)) -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+            }
+            foreach ($name in $backups.Keys) {
+                $path = Join-Path $root $name
+                if ($null -ne $backups[$name]) { Set-LanPowerAtomicFile $path $backups[$name] }
+                elseif (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path -Force }
+            }
+            $displayRoot = Join-Path $root 'Display'
+            if ((Test-Path -LiteralPath $displayRoot -PathType Container) -and @(Get-ChildItem -LiteralPath $displayRoot -Force).Count -eq 0) { Remove-Item -LiteralPath $displayRoot -Force }
             . (Join-Path $root 'Install-Core.ps1')
             $restore = @{ SourceAgent = (Join-Path $root 'StandaloneAgent.ps1'); ManagementKey = [string]$config.managementKey; InstallPath = $root;
                 TaskName = [string]$config.agentTaskName; Port = [int]$config.port; SkipUwfPreparation = $true }

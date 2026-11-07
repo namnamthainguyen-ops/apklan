@@ -28,6 +28,23 @@ function Assert-SecureAcl {
         }
     }
 }
+function Assert-DisplayAcl {
+    param([string]$Path)
+    $acl = Get-Acl -LiteralPath $Path
+    $usersFound = $false
+    foreach ($rule in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+        if ($rule.AccessControlType -ne 'Allow') { continue }
+        $sid = $rule.IdentityReference.Value
+        Assert-True ($sid -in @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-32-545')) 'Player code permits only SYSTEM, Administrators and read-only Users.'
+        if ($sid -eq 'S-1-5-32-545') {
+            $usersFound = $true
+            $mutating = [Security.AccessControl.FileSystemRights]::Write -bor [Security.AccessControl.FileSystemRights]::Delete -bor [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership
+            Assert-True (($rule.FileSystemRights -band $mutating) -eq 0) 'Interactive Users cannot modify trusted player code.'
+            Assert-True (($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadAndExecute) -ne 0) 'Interactive Users can read and execute player code.'
+        }
+    }
+    Assert-True $usersFound 'Trusted player is readable by the interactive Users group.'
+}
 function Get-TestHmac {
     param([string]$Key, [string]$Value)
     $hmac = [Security.Cryptography.HMACSHA256]::new([Convert]::FromBase64String($Key))
@@ -64,8 +81,8 @@ function Test-AgentDiscovery {
 function Invoke-OfflineTestInstall {
     param([switch]$LegacyManagementKey)
     if (-not $InstallerExe) {
-        if ($LegacyManagementKey) { & $offlineInstaller -ManagementKey $key -InstallPath $installPath -TaskName $taskName -Port $port -SkipUwfPreparation }
-        else { & $offlineInstaller -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port -SkipUwfPreparation }
+        if ($LegacyManagementKey) { & $offlineInstaller -ManagementKey $key -InstallPath $installPath -TaskName $taskName -Port $port -SkipUwfPreparation -SkipMediaSetup }
+        else { & $offlineInstaller -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port -SkipUwfPreparation -SkipMediaSetup }
         return
     }
     $info = [Diagnostics.ProcessStartInfo]::new()
@@ -135,7 +152,8 @@ try {
     Invoke-OfflineTestInstall
     $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
     Assert-True ($config.managementKey -ceq $key) 'Installer stores the derived room key.'
-    Assert-True ([int]$config.versionCode -eq 9 -and $config.version -eq '1.2.4') 'Installer records the signed-update client version.'
+    Assert-True ([int]$config.versionCode -eq 10 -and $config.version -eq '1.3.0') 'Installer records the signed-update client version.'
+    Assert-True ($config.runtimeDataRoot -eq '' -and [int]$config.runtimePort -eq 17842) 'CI media setup is skipped without touching D: or an interactive session.'
     Assert-True ($config.updateTaskName -eq $updateTaskName -and $config.agentTaskName -eq $taskName) 'Installer records both dedicated task names.'
     Assert-True (@($config.vpnNetworks).Count -eq 0) 'Default installation has no implicit remote VPN trust.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw) -notmatch $roomKey) 'Plain room key is not persisted.'
@@ -161,6 +179,15 @@ try {
         Assert-SecureAcl $installedPayload
         Assert-True ((Get-FileHash -LiteralPath $installedPayload -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath (Join-Path $repoRoot "client\$payload") -Algorithm SHA256).Hash) "Installed update payload matches source: $payload"
     }
+    Assert-SecureAcl (Join-Path $installPath 'RoomTN20.Runtime.dll')
+    Assert-DisplayAcl (Join-Path $installPath 'Display')
+    Assert-DisplayAcl (Join-Path $installPath 'Display\RoomTN20.Player.exe')
+    foreach ($entry in @(@('RoomTN20.Runtime.dll', 'RoomTN20.Runtime-1.3.0.dll'), @('Display\RoomTN20.Player.exe', 'RoomTN20.Player-1.3.0.exe'))) {
+        Assert-True ((Get-FileHash -LiteralPath (Join-Path $installPath $entry[0]) -Algorithm SHA256).Hash -ceq
+            (Get-FileHash -LiteralPath (Join-Path $repoRoot ('release\' + $entry[1])) -Algorithm SHA256).Hash) 'Installed runtime/player matches the verified published payload.'
+    }
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $installPath 'media-certificate.pfx'))) 'CI skipped media preparation and did not create a media identity.'
+    Assert-True (-not (Get-ScheduledTask -TaskName ($taskName + 'Display') -ErrorAction SilentlyContinue)) 'CI did not launch an interactive display task.'
     Test-AgentDiscovery $port $key $deviceId
     # The shared installer core must preserve a previously authorized VPN scope.
     # Changing this dedicated test config is safe on the disposable CI runner.
@@ -174,7 +201,7 @@ try {
     Assert-True ('100.64.10.0/255.255.255.0' -in $reinstalledAddress.RemoteAddress -or '100.64.10.0/24' -in $reinstalledAddress.RemoteAddress) 'Reinstall applies only the saved explicit VPN network.'
     Test-AgentDiscovery $port $key $deviceId
     if ($IncludeOnline) {
-        & (Join-Path $repoRoot 'install-online.ps1') -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port -SkipUwfPreparation
+        & (Join-Path $repoRoot 'install-online.ps1') -RoomKey $roomKey -InstallPath $installPath -TaskName $taskName -Port $port -SkipUwfPreparation -SkipMediaSetup
         $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
         Assert-True ($config.deviceId -eq $deviceId) 'Online reinstall preserves device ID.'
         Assert-SecureAcl $installPath
@@ -184,6 +211,7 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $installPath)) 'Uninstall removes the dedicated installation directory.'
     Assert-True (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 'Uninstall removes the task.'
     Assert-True (-not (Get-ScheduledTask -TaskName $updateTaskName -ErrorAction SilentlyContinue)) 'Uninstall removes the updater task.'
+    Assert-True (-not (Get-ScheduledTask -TaskName ($taskName + 'Display') -ErrorAction SilentlyContinue)) 'Uninstall removes any display task.'
     Assert-True (-not (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue)) 'Uninstall removes the firewall rule.'
     $mode = if ($InstallerExe) { 'single EXE + stdin room key' } else { 'PowerShell + legacy reinstall' }
     Write-Output "INSTALLATION_SMOKE_TEST=PASS ($mode, ACL, SYSTEM task, firewall, authenticated state, stable reinstall, uninstall)"
@@ -193,6 +221,8 @@ finally {
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     Stop-ScheduledTask -TaskName $updateTaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $updateTaskName -Confirm:$false -ErrorAction SilentlyContinue
+    Stop-ScheduledTask -TaskName ($taskName + 'Display') -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName ($taskName + 'Display') -Confirm:$false -ErrorAction SilentlyContinue
     Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     if (Test-Path -LiteralPath $installPath) {
         $resolved = Resolve-TestCleanupPath -ActualPath $installPath -ExpectedPath (Join-Path $env:TEMP "LanPowerSmoke-$testId")

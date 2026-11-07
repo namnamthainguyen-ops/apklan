@@ -6,14 +6,15 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $exePath = (Resolve-Path -LiteralPath $InstallerExe).Path
 $assembly = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($exePath))
 
-foreach ($payload in @('StandaloneAgent.ps1', 'Install-Core.ps1', 'Update-Agent.ps1', 'Update-PublicKey.xml')) {
+foreach ($payload in @('StandaloneAgent.ps1', 'Install-Core.ps1', 'Update-Agent.ps1', 'Update-PublicKey.xml', 'RoomTN20.Runtime.dll', 'RoomTN20.Player.exe')) {
     $resources = @($assembly.GetManifestResourceNames() | Where-Object { $_.EndsWith($payload, [StringComparison]::OrdinalIgnoreCase) })
     if ($resources.Count -ne 1) { throw "Expected exactly one embedded payload resource for $payload." }
     $stream = $assembly.GetManifestResourceStream($resources[0])
     $hash = [Security.Cryptography.SHA256]::Create()
     try { $embedded = [BitConverter]::ToString($hash.ComputeHash($stream)).Replace('-', '') }
     finally { $hash.Dispose(); $stream.Dispose() }
-    $source = (Get-FileHash -LiteralPath (Join-Path $repoRoot "client\$payload") -Algorithm SHA256).Hash
+    $sourcePath = if ($payload -eq 'RoomTN20.Runtime.dll') { 'release\RoomTN20.Runtime-1.3.0.dll' } elseif ($payload -eq 'RoomTN20.Player.exe') { 'release\RoomTN20.Player-1.3.0.exe' } else { "client\$payload" }
+    $source = (Get-FileHash -LiteralPath (Join-Path $repoRoot $sourcePath) -Algorithm SHA256).Hash
     if ($embedded -cne $source) { throw "Embedded $payload differs from the checked-in source." }
     Write-Output "EMBEDDED_PAYLOAD=PASS $payload $embedded"
 }

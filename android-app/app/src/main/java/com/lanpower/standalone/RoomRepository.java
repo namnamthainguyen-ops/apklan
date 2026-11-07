@@ -31,6 +31,16 @@ final class RoomRepository {
                 readDevices(room, value.optJSONArray("devices"));
                 room.lastScan = value.optLong("lastScan");
                 room.networkTargets = value.optString("networkTargets", "");
+                JSONObject playlist = value.optJSONObject("playlist");
+                if (playlist != null) {
+                    room.playlist.version = playlist.optString("version", "none");
+                    JSONArray media = playlist.optJSONArray("files");
+                    if (media != null) for (int item = 0; item < media.length(); item++) {
+                        JSONObject file = media.getJSONObject(item);
+                        room.playlist.files.add(new MediaItem(file.getString("id"), file.getString("name"), file.getString("type"), file.getLong("length"), file.getInt("durationSeconds")));
+                    }
+                    room.playlist.validate();
+                }
                 rooms.add(room);
             }
             return rooms;
@@ -56,7 +66,11 @@ final class RoomRepository {
                         .put("mac", device.mac).put("uwf", device.uwf).put("capabilities", device.capabilities)
                         .put("stateAuthenticated", device.stateAuthenticated).put("agentVersion", device.agentVersion).put("lastSeen", device.lastSeen));
             }
+            JSONArray media = new JSONArray();
+            room.playlist.validate();
+            for (MediaItem item : room.playlist.files) media.put(new JSONObject().put("id", item.id).put("name", item.name).put("type", item.type).put("length", item.length).put("durationSeconds", item.durationSeconds));
             values.put(new JSONObject().put("id", room.id).put("name", room.name).put("legacy", room.legacy)
+                    .put("playlist", new JSONObject().put("version", room.playlist.version).put("files", media))
                     .put("lastScan", room.lastScan).put("networkTargets", room.networkTargets).put("devices", devices));
         }
         if (!preferences.edit().putString("rooms", values.toString()).commit()) throw new IllegalStateException("Không lưu được danh sách phòng");

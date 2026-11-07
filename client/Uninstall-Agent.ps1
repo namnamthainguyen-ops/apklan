@@ -29,12 +29,17 @@ if (-not [Guid]::TryParse([string]$config.deviceId, [ref]$parsedId) -or
 if ($PSCmdlet.ShouldProcess($InstallPath, 'Remove standalone agent and firewall rule')) {
     Assert-LanPowerWritableSystem
     $updateTaskName = if ($config.PSObject.Properties['updateTaskName']) { [string]$config.updateTaskName } else { $TaskName + 'Updater' }
+    $displayTaskName = if ($config.PSObject.Properties['displayTaskName']) { [string]$config.displayTaskName } else { $TaskName + 'Display' }
+    Stop-ScheduledTask -TaskName $displayTaskName -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $displayTaskName -Confirm:$false -ErrorAction SilentlyContinue
     Stop-ScheduledTask -TaskName $updateTaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $updateTaskName -Confirm:$false -ErrorAction SilentlyContinue
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+    Stop-LanPowerDisplay -InstallPath $InstallPath
     $ruleName = Get-LanPowerFirewallRuleName $TaskName ([int]$config.port)
     Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+    Get-NetFirewallRule -DisplayName (Get-LanPowerMediaFirewallRuleName $TaskName) -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     if (Test-Path -LiteralPath $InstallPath) { Remove-Item -LiteralPath $InstallPath -Recurse -Force }
-    Write-Host 'LanPower Standalone Agent removed.' -ForegroundColor Green
+    Write-Host 'Room TN20 client removed. Media and state on D: have been preserved.' -ForegroundColor Green
 }

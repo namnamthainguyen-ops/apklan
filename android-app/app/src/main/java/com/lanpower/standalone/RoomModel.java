@@ -16,6 +16,7 @@ final class RoomModel {
     long lastScan;
     String scanError = "";
     String networkTargets = "";
+    RoomPlaylist playlist = new RoomPlaylist();
 
     RoomModel(String id, String name, boolean legacy, String key) {
         if (id == null || id.isEmpty() || name == null || name.trim().isEmpty()) throw new IllegalArgumentException("Phòng không hợp lệ");
@@ -65,6 +66,11 @@ final class ManagedDevice {
     String updateStatus = "unknown";
     String updateMessage = "Chưa xác thực thông tin cập nhật";
     boolean updateAuthenticated;
+    String lockState = "unknown";
+    String mediaVersion = "none";
+    int mediaPort;
+    String mediaCertSha256 = "";
+    boolean lockAuthenticated;
 
     ManagedDevice(String id, String hostname, String ip, String mac) {
         this.id = id;
@@ -84,6 +90,19 @@ final class ManagedDevice {
     }
 
     String trustedUwf() { return stateAuthenticated ? uwf : "Chưa xác thực / agent cũ"; }
+
+    String lockDescription() {
+        if (!lockAuthenticated) return "Chưa xác thực / cần cập nhật client";
+        switch (lockState) {
+            case "locked": return "Đang khóa và hiển thị quảng cáo";
+            case "unlocked": return "Đang mở";
+            case "pending": return "Đang chờ màn hình xác nhận";
+            case "ui-offline": return "Chưa có màn hình người dùng hoạt động";
+            default: return "Chưa xác định";
+        }
+    }
+
+    boolean supportsMedia() { return lockAuthenticated && supports("media") && mediaPort == 17842 && mediaCertSha256.matches("[a-f0-9]{64}"); }
 
     String uwfDescription() {
         if (!stateAuthenticated) return "Chưa xác thực / agent cũ";
@@ -110,6 +129,11 @@ final class ManagedDevice {
         value.updateStatus = updateStatus;
         value.updateMessage = updateMessage;
         value.updateAuthenticated = updateAuthenticated;
+        value.lockState = lockState;
+        value.mediaVersion = mediaVersion;
+        value.mediaPort = mediaPort;
+        value.mediaCertSha256 = mediaCertSha256;
+        value.lockAuthenticated = lockAuthenticated;
         return value;
     }
 }

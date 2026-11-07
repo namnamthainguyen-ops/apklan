@@ -213,7 +213,13 @@ function Get-LanPowerInstallPath {
             throw 'InstallPath must be a directory.'
         }
         foreach ($item in @(Get-ChildItem -LiteralPath $fullPath -Force)) {
-            if ($item.PSIsContainer -or $item.Name -notin @('StandaloneAgent.ps1', 'Install-Core.ps1', 'Update-Agent.ps1', 'Update-PublicKey.xml', 'config.json', 'update-status.json', 'uwf-preparation.log', 'uwf-preparation.log.bak') -or
+            if ($item.PSIsContainer -and $item.Name -ceq 'Display' -and -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                foreach ($displayFile in @(Get-ChildItem -LiteralPath $item.FullName -Force)) {
+                    if ($displayFile.PSIsContainer -or $displayFile.Name -cne 'RoomTN20.Player.exe' -or ($displayFile.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Unexpected display file or reparse point.' }
+                }
+                continue
+            }
+            if ($item.PSIsContainer -or $item.Name -notin @('StandaloneAgent.ps1', 'Install-Core.ps1', 'Update-Agent.ps1', 'Update-PublicKey.xml', 'RoomTN20.Runtime.dll', 'media-certificate.pfx', 'config.json', 'update-status.json', 'uwf-preparation.log', 'uwf-preparation.log.bak') -or
                 ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 throw 'InstallPath contains unrelated files or reparse points; choose a dedicated directory.'
             }
@@ -236,6 +242,11 @@ function Set-LanPowerDirectorySecurity {
     }
     Set-Acl -LiteralPath $Path -AclObject $acl
     foreach ($item in @(Get-ChildItem -LiteralPath $Path -Force)) {
+        if ($item.PSIsContainer) {
+            if ($item.Name -cne 'Display') { throw 'Unexpected directory in the agent installation.' }
+            Set-LanPowerReadOnlyDisplaySecurity $item.FullName
+            continue
+        }
         $fileAcl = [Security.AccessControl.FileSecurity]::new()
         $fileAcl.SetOwner($administrators)
         $fileAcl.SetAccessRuleProtection($true, $false)
@@ -246,12 +257,168 @@ function Set-LanPowerDirectorySecurity {
     }
 }
 
+function Set-LanPowerReadOnlyDisplaySecurity {
+    param([Parameter(Mandatory)][string]$Path)
+    $administrators = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+    $system = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+    $users = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')
+    $acl = [Security.AccessControl.DirectorySecurity]::new()
+    $acl.SetOwner($administrators)
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($sid in @($administrators, $system)) {
+        [void]$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+    }
+    [void]$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($users, 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+    Set-Acl -LiteralPath $Path -AclObject $acl
+    foreach ($item in @(Get-ChildItem -LiteralPath $Path -Force)) {
+        if ($item.PSIsContainer -or $item.Name -cne 'RoomTN20.Player.exe' -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Unexpected display file.' }
+        $fileAcl = [Security.AccessControl.FileSecurity]::new()
+        $fileAcl.SetOwner($administrators)
+        $fileAcl.SetAccessRuleProtection($true, $false)
+        foreach ($sid in @($administrators, $system)) { [void]$fileAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', 'Allow')) }
+        [void]$fileAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($users, 'ReadAndExecute', 'Allow'))
+        Set-Acl -LiteralPath $item.FullName -AclObject $fileAcl
+    }
+}
+
+function Initialize-LanPowerMediaData {
+    param([string]$DataRoot = 'D:\RoomTN20Data')
+    $full = [IO.Path]::GetFullPath($DataRoot).TrimEnd('\')
+    if ($full -ieq [IO.Path]::GetPathRoot($full).TrimEnd('\')) { throw 'Media data requires a dedicated directory.' }
+    $ancestor = $full
+    while ($ancestor) {
+        if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Media data must not use reparse points.' }
+        $ancestor = [IO.Path]::GetDirectoryName($ancestor)
+    }
+    $drive = [IO.Path]::GetPathRoot($full).TrimEnd('\')
+    if ($drive -ieq ($env:SystemDrive)) { throw 'Media data must be on an unprotected data drive, separate from Windows.' }
+    if (-not (Test-Path -LiteralPath ([IO.Path]::GetPathRoot($full)))) { return '' }
+    # A missing UWF provider is expected on Server; an installed provider must be readable.
+    if (Test-Path -LiteralPath (Join-Path (Get-LanPowerNativeSystemDirectory) 'uwfmgr.exe')) {
+        try {
+            $volumes = @(Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Volume -ErrorAction Stop)
+            $dataVolumes = @($volumes | Where-Object { ([string]$_.DriveLetter).TrimEnd(':') -ieq $drive.TrimEnd(':') })
+            if (@($dataVolumes | Where-Object { $_.Protected }).Count) { throw 'MEDIA_DRIVE_PROTECTED: Data drive is protected by UWF in the current or next session.' }
+        }
+        catch { throw ('MEDIA_DRIVE_UNVERIFIED: Cannot use the data drive: ' + $_.Exception.Message) }
+    }
+    $administrators = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+    $acl = [Security.AccessControl.DirectorySecurity]::new()
+    $acl.SetOwner($administrators)
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($sid in @($administrators, [Security.Principal.SecurityIdentifier]::new('S-1-5-18'))) {
+        [void]$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+    }
+    [void]$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'), 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+    if (-not (Test-Path -LiteralPath $full)) { [void][IO.Directory]::CreateDirectory($full, $acl) }
+    # Never take ownership of an unrelated directory or follow links in old data.
+    foreach ($item in @(Get-ChildItem -LiteralPath $full -Force)) {
+        if (-not $item.PSIsContainer -or $item.Name -notin @('Media','State') -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Media data directory contains unrelated content.' }
+    }
+    Set-Acl -LiteralPath $full -AclObject $acl
+    foreach ($name in @('Media', 'State')) {
+        $path = Join-Path $full $name
+        if (-not (Test-Path -LiteralPath $path)) { [void][IO.Directory]::CreateDirectory($path, $acl) }
+        foreach ($item in @(Get-ChildItem -LiteralPath $path -Force -Recurse)) {
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Media data contains an unsafe reparse point.' }
+        }
+        Set-Acl -LiteralPath $path -AclObject $acl
+    }
+    return $full
+}
+
+function Initialize-LanPowerMediaCertificate {
+    param([string]$Path, [string]$DeviceId)
+    if (Test-Path -LiteralPath $Path) {
+        $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new([IO.File]::ReadAllBytes($Path), '', [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
+        try { if (-not $certificate.HasPrivateKey -or $certificate.NotAfter -lt [DateTime]::Now.AddDays(7)) { throw 'MEDIA_CERTIFICATE_INVALID: Existing media certificate needs administrator repair.' }; return }
+        finally { $certificate.Dispose() }
+    }
+    $rsa = [Security.Cryptography.RSACng]::new(2048)
+    try {
+        $request = [Security.Cryptography.X509Certificates.CertificateRequest]::new('CN=RoomTN20-' + $DeviceId, $rsa, [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+        $request.CertificateExtensions.Add([Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($false, $false, 0, $true))
+        $usage = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature -bor [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment
+        $request.CertificateExtensions.Add([Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new($usage, $true))
+        $oids = [Security.Cryptography.OidCollection]::new()
+        [void]$oids.Add([Security.Cryptography.Oid]::new('1.3.6.1.5.5.7.3.1'))
+        $request.CertificateExtensions.Add([Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($oids, $true))
+        $certificate = $request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddDays(-1), [DateTimeOffset]::UtcNow.AddYears(10))
+        try { Set-LanPowerAtomicFile $Path ($certificate.Export([Security.Cryptography.X509Certificates.X509ContentType]::Pfx, '')) }
+        finally { $certificate.Dispose() }
+    }
+    finally { $rsa.Dispose() }
+}
+
+function Resolve-LanPowerRuntimePayload {
+    param([string]$Source, [string]$PayloadRoot, [ValidateSet('runtime','player')][string]$Kind)
+    # These pins also let the older, three-script updater install the new signed
+    # core without accepting unsigned sidecars or changing its trust key.
+    $fileName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime-1.3.0.dll' } else { 'RoomTN20.Player-1.3.0.exe' }
+    $installedName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime.dll' } else { 'RoomTN20.Player.exe' }
+    $expectedHash = if ($Kind -eq 'runtime') { '849A8D7DEF1CE36B5543DE07996FB8BF0E53AF555D07A36FA8779D730140178C' } else { '0C37A28B3475127CB51FD8725B3B4E5ADF1C64263EC3CCFA538F8551527CA887' }
+    if (-not $Source) {
+        $sourceTreeFile = Join-Path (Split-Path -Parent $PayloadRoot) ('release\' + $fileName)
+        $extractedFile = Join-Path $PayloadRoot $installedName
+        $installedDisplayFile = Join-Path $PayloadRoot 'Display\RoomTN20.Player.exe'
+        if (Test-Path -LiteralPath $sourceTreeFile -PathType Leaf) { $Source = $sourceTreeFile }
+        elseif (Test-Path -LiteralPath $extractedFile -PathType Leaf) { $Source = $extractedFile }
+        elseif ($Kind -eq 'player' -and (Test-Path -LiteralPath $installedDisplayFile -PathType Leaf)) { $Source = $installedDisplayFile }
+        else {
+            $Source = $extractedFile
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $request = [Net.HttpWebRequest]::Create('https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/' + $fileName)
+            $request.AllowAutoRedirect = $false
+            $request.Timeout = 60000
+            $request.ReadWriteTimeout = 60000
+            $response = $request.GetResponse()
+            try {
+                if ([int]$response.StatusCode -ne 200 -or $response.ContentLength -gt 2097152) { throw 'RUNTIME_DOWNLOAD_INVALID' }
+                $stream = $response.GetResponseStream()
+                $memory = [IO.MemoryStream]::new()
+                try {
+                    $buffer = New-Object byte[] 16384
+                    while (($count = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                        if ($memory.Length + $count -gt 2097152) { throw 'RUNTIME_DOWNLOAD_TOO_LARGE' }
+                        $memory.Write($buffer, 0, $count)
+                    }
+                    Set-LanPowerAtomicFile $Source $memory.ToArray()
+                }
+                finally { $memory.Dispose(); $stream.Dispose() }
+            }
+            finally { $response.Dispose() }
+        }
+    }
+    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) { throw "RUNTIME_CHECKSUM_INVALID: $Kind" }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $actualHash = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($Source))).Replace('-', '') }
+    finally { $sha.Dispose() }
+    if ($actualHash -ine $expectedHash) { throw "RUNTIME_CHECKSUM_INVALID: $Kind" }
+    return $Source
+}
+
 function Get-LanPowerFirewallRuleName {
     param([string]$TaskName, [int]$Port)
     if ($TaskName -eq 'LanPowerStandaloneAgent' -and $Port -eq 17840) {
         return 'LanPower Standalone Agent UDP 17840'
     }
     return "LanPower Standalone Agent $TaskName UDP $Port"
+}
+
+function Get-LanPowerMediaFirewallRuleName {
+    param([string]$TaskName)
+    return "Room TN20 $TaskName media TLS TCP 17842"
+}
+
+function Stop-LanPowerDisplay {
+    param([string]$InstallPath)
+    $expected = [IO.Path]::GetFullPath((Join-Path $InstallPath 'Display\RoomTN20.Player.exe'))
+    foreach ($process in @(Get-Process -Name 'RoomTN20.Player' -ErrorAction SilentlyContinue)) {
+        try {
+            if ($process.MainModule.FileName -ieq $expected) { Stop-Process -Id $process.Id -Force -ErrorAction Stop }
+        }
+        catch { throw 'DISPLAY_STOP_FAILED: Close the Room TN20 display session before reinstalling.' }
+    }
 }
 
 function ConvertTo-LanPowerVpnNetworks {
@@ -336,7 +503,7 @@ function Test-LanPowerHandshakeSignature {
 
 function Wait-LanPowerInstalledAgent {
     param([string]$InstallPath, [string]$RoomKey, [int]$Port = 17840,
-        [string]$ExpectedVersion = '1.2.4', [int]$ExpectedVersionCode = 9,
+        [string]$ExpectedVersion = '1.3.0', [int]$ExpectedVersionCode = 10,
         [ValidateRange(1, 60)][int]$TimeoutSeconds = 20, [string]$ManagementKey)
     if ($RoomKey) { $ManagementKey = ConvertTo-LanPowerManagementKey $RoomKey }
     try {
@@ -394,7 +561,10 @@ function Invoke-LanPowerInstall {
         [string[]]$VpnNetworks,
         [string]$SourceCore,
         [string]$SourceUpdater,
-        [string]$SourcePublicKey
+        [string]$SourcePublicKey,
+        [string]$SourceRuntime,
+        [string]$SourcePlayer,
+        [switch]$SkipMediaSetup
     )
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -412,7 +582,9 @@ function Invoke-LanPowerInstall {
     if (-not $SourceCore) { $SourceCore = Join-Path $payloadRoot 'Install-Core.ps1' }
     if (-not $SourceUpdater) { $SourceUpdater = Join-Path $payloadRoot 'Update-Agent.ps1' }
     if (-not $SourcePublicKey) { $SourcePublicKey = Join-Path $payloadRoot 'Update-PublicKey.xml' }
-    foreach ($payload in @($SourceCore, $SourceUpdater, $SourcePublicKey)) {
+    $SourceRuntime = Resolve-LanPowerRuntimePayload -Source $SourceRuntime -PayloadRoot $payloadRoot -Kind runtime
+    $SourcePlayer = Resolve-LanPowerRuntimePayload -Source $SourcePlayer -PayloadRoot $payloadRoot -Kind player
+    foreach ($payload in @($SourceCore, $SourceUpdater, $SourcePublicKey, $SourceRuntime, $SourcePlayer)) {
         if (-not (Test-Path -LiteralPath $payload -PathType Leaf)) { throw "Missing update payload: $([IO.Path]::GetFileName($payload))" }
     }
     $InstallPath = Get-LanPowerInstallPath $InstallPath
@@ -437,6 +609,10 @@ function Invoke-LanPowerInstall {
     New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
     Set-LanPowerDirectorySecurity $InstallPath
     $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    $displayTaskName = $TaskName + 'Display'
+    Stop-ScheduledTask -TaskName $displayTaskName -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $displayTaskName -Confirm:$false -ErrorAction SilentlyContinue
+    Stop-LanPowerDisplay -InstallPath $InstallPath
     if ($existingTask) {
         Stop-ScheduledTask -TaskName $TaskName -ErrorAction Stop
         for ($attempt = 0; $attempt -lt 50; $attempt++) {
@@ -447,9 +623,22 @@ function Invoke-LanPowerInstall {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     }
     $updateTaskName = $TaskName + 'Updater'
-    foreach ($entry in @(@($SourceAgent, 'StandaloneAgent.ps1'), @($SourceCore, 'Install-Core.ps1'), @($SourceUpdater, 'Update-Agent.ps1'), @($SourcePublicKey, 'Update-PublicKey.xml'))) {
+    $displayRoot = Join-Path $InstallPath 'Display'
+    New-Item -ItemType Directory -Path $displayRoot -Force | Out-Null
+    Set-LanPowerReadOnlyDisplaySecurity $displayRoot
+    foreach ($entry in @(@($SourceAgent, 'StandaloneAgent.ps1'), @($SourceCore, 'Install-Core.ps1'), @($SourceUpdater, 'Update-Agent.ps1'), @($SourcePublicKey, 'Update-PublicKey.xml'), @($SourceRuntime, 'RoomTN20.Runtime.dll'), @($SourcePlayer, 'Display\RoomTN20.Player.exe'))) {
         $destination = Join-Path $InstallPath $entry[1]
         if ([IO.Path]::GetFullPath($entry[0]) -ine [IO.Path]::GetFullPath($destination)) { Set-LanPowerAtomicFile $destination ([IO.File]::ReadAllBytes($entry[0])) }
+    }
+    $mediaDataRoot = ''
+    if (-not $SkipMediaSetup) {
+        try {
+            $dataRoot = if ($previous -and $previous.PSObject.Properties['runtimeDataRoot'] -and $previous.runtimeDataRoot) { [string]$previous.runtimeDataRoot } else { 'D:\RoomTN20Data' }
+            $mediaDataRoot = Initialize-LanPowerMediaData -DataRoot $dataRoot
+            if ($mediaDataRoot) { Initialize-LanPowerMediaCertificate -Path (Join-Path $InstallPath 'media-certificate.pfx') -DeviceId $deviceId }
+            else { Write-Warning 'MEDIA_DATA_UNAVAILABLE: D: was not found. Power management is installed; lock/advertising requires an unprotected D: drive and reinstall.' }
+        }
+        catch { $mediaDataRoot = ''; Write-Warning ('MEDIA_DATA_UNAVAILABLE: Power management is installed; advertising was not enabled. ' + $_.Exception.Message) }
     }
     $newConfig = [ordered]@{
         deviceId = $deviceId
@@ -458,8 +647,11 @@ function Invoke-LanPowerInstall {
         vpnNetworks = @($VpnNetworks)
         agentTaskName = $TaskName
         updateTaskName = $updateTaskName
-        version = '1.2.4'
-        versionCode = 9
+        displayTaskName = $displayTaskName
+        runtimeDataRoot = $mediaDataRoot
+        runtimePort = 17842
+        version = '1.3.0'
+        versionCode = 10
         installedAt = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json
     Set-LanPowerAtomicFile $configPath ([Text.Encoding]::ASCII.GetBytes($newConfig))
@@ -476,6 +668,16 @@ function Invoke-LanPowerInstall {
     Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     $remoteAddresses = @('LocalSubnet') + @($VpnNetworks)
     New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol UDP -LocalPort $Port -RemoteAddress $remoteAddresses -Action Allow -Program $powershellPath | Out-Null
+    $mediaRuleName = Get-LanPowerMediaFirewallRuleName $TaskName
+    Get-NetFirewallRule -DisplayName $mediaRuleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+    if ($mediaDataRoot) {
+        New-NetFirewallRule -DisplayName $mediaRuleName -Direction Inbound -Protocol TCP -LocalPort 17842 -RemoteAddress $remoteAddresses -Action Allow -Program $powershellPath | Out-Null
+        $displayAction = New-ScheduledTaskAction -Execute (Join-Path $displayRoot 'RoomTN20.Player.exe') -Argument ('--data-root "{0}"' -f $mediaDataRoot)
+        $displayPrincipal = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited
+        $displaySettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances Parallel -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+        Register-ScheduledTask -TaskName $displayTaskName -Action $displayAction -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Settings $displaySettings -Principal $displayPrincipal -Force | Out-Null
+        Start-ScheduledTask -TaskName $displayTaskName -ErrorAction SilentlyContinue
+    }
     $updateAction = New-ScheduledTaskAction -Execute $powershellPath -Argument ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"' -f (Join-Path $InstallPath 'Update-Agent.ps1'))
     $updateStartup = New-ScheduledTaskTrigger -AtStartup -RandomDelay (New-TimeSpan -Minutes 10)
     $updatePeriodic = New-ScheduledTaskTrigger -Once -At ([DateTime]::Now.AddMinutes(15)) -RepetitionInterval (New-TimeSpan -Hours 6)

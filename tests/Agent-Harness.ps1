@@ -23,6 +23,17 @@ function Invoke-UwfAction {
 '@
     'Invoke-PowerAction' = 'function Invoke-PowerAction { param([string]$Action) Write-Output "TEST_POWER_ACTION=$Action" }'
     'Invoke-WakeRelay' = 'function Invoke-WakeRelay { param([string]$Mac) [Console]::WriteLine("TEST_WAKE_RELAY=$Mac"); return "Wake-on-LAN relayed." }'
+    'Initialize-LanPowerRuntime' = 'function Initialize-LanPowerRuntime { param([object]$Config) $script:TestLocked = $false }'
+    'Get-LanPowerRuntimeSnapshot' = 'function Get-LanPowerRuntimeSnapshot { return @{ lockState = $(if ($script:TestLocked) { "locked" } else { "unlocked" }); mediaVersion = "none"; mediaPort = 17842; mediaCertSha256 = ("A" * 64); available = $true } }'
+    'Invoke-LanPowerSessionLock' = @'
+function Invoke-LanPowerSessionLock {
+    param([string]$Action)
+    if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'fail-lock')) { throw 'TEST_LOCK_UI_UNAVAILABLE' }
+    $script:TestLocked = $Action -eq 'lock'
+    [Console]::WriteLine("TEST_SESSION_LOCK=$Action")
+    return "Interactive display confirmed $Action."
+}
+'@
 }
 $edits = @()
 foreach ($name in $replacements.Keys) {
@@ -34,7 +45,7 @@ foreach ($edit in ($edits | Sort-Object Start -Descending)) {
     $source = $source.Remove($edit.Start, $edit.Length).Insert($edit.Start, $edit.Value)
 }
 $source = $source.Replace("'Global\LanPowerStandaloneAgent'", ("'Local\LanPowerAgentTest-" + [Guid]::NewGuid().ToString('N') + "'"))
-if ($source -match 'Start-Process|shutdown\.exe|uwfmgr\.exe|dism\.exe') { throw 'Unsafe test harness: real power executable remains.' }
+if ($source -match 'Start-Process|shutdown\.exe|uwfmgr\.exe|dism\.exe|\[RoomTN20\.Runtime\.Controller\]') { throw 'Unsafe test harness: real OS/UI action remains.' }
 $testAgent = Join-Path $TestRoot 'StandaloneAgent.ps1'
 [IO.File]::WriteAllText($testAgent, $source, [Text.Encoding]::ASCII)
 & $testAgent -DebugMode

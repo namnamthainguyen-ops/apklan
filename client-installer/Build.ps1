@@ -3,16 +3,20 @@ param([string]$OutputPath)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repoRoot = Split-Path -Parent $PSScriptRoot
-if (-not $OutputPath) { $OutputPath = Join-Path $repoRoot 'release\RoomTN20-ClientSetup-1.2.4.exe' }
+if (-not $OutputPath) { $OutputPath = Join-Path $repoRoot 'release\RoomTN20-ClientSetup-1.3.0.exe' }
 $OutputPath = [IO.Path]::GetFullPath($OutputPath)
 $agentPath = Join-Path $repoRoot 'client\StandaloneAgent.ps1'
 $corePath = Join-Path $repoRoot 'client\Install-Core.ps1'
 $updaterPath = Join-Path $repoRoot 'client\Update-Agent.ps1'
 $publicKeyPath = Join-Path $repoRoot 'client\Update-PublicKey.xml'
+$runtimePath = Join-Path $repoRoot 'release\RoomTN20.Runtime-1.3.0.dll'
+$playerPath = Join-Path $repoRoot 'release\RoomTN20.Player-1.3.0.exe'
 $agentHash = (Get-FileHash -LiteralPath $agentPath -Algorithm SHA256).Hash
 $coreHash = (Get-FileHash -LiteralPath $corePath -Algorithm SHA256).Hash
 $updaterHash = (Get-FileHash -LiteralPath $updaterPath -Algorithm SHA256).Hash
 $publicKeyHash = (Get-FileHash -LiteralPath $publicKeyPath -Algorithm SHA256).Hash
+$runtimeHash = (Get-FileHash -LiteralPath $runtimePath -Algorithm SHA256).Hash
+$playerHash = (Get-FileHash -LiteralPath $playerPath -Algorithm SHA256).Hash
 $framework = [Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()
 $compiler = Join-Path $framework 'csc.exe'
 if (-not (Test-Path -LiteralPath $compiler)) { throw 'The .NET Framework C# compiler was not found. Run this build using Windows PowerShell 5.1.' }
@@ -31,8 +35,10 @@ namespace LanPower.ClientSetup {
         internal const string CoreSha256 = "$coreHash";
         internal const string UpdaterSha256 = "$updaterHash";
         internal const string PublicKeySha256 = "$publicKeyHash";
-        internal const string Version = "1.2.4";
-        internal const int VersionCode = 9;
+        internal const string RuntimeSha256 = "$runtimeHash";
+        internal const string PlayerSha256 = "$playerHash";
+        internal const string Version = "1.3.0";
+        internal const int VersionCode = 10;
     }
 }
 "@
@@ -45,6 +51,8 @@ namespace LanPower.ClientSetup {
         ('/resource:' + $corePath + ',LanPower.Payload.Install-Core.ps1'),
         ('/resource:' + $updaterPath + ',LanPower.Payload.Update-Agent.ps1'),
         ('/resource:' + $publicKeyPath + ',LanPower.Payload.Update-PublicKey.xml'),
+        ('/resource:' + $runtimePath + ',LanPower.Payload.RoomTN20.Runtime.dll'),
+        ('/resource:' + $playerPath + ',LanPower.Payload.RoomTN20.Player.exe'),
         (Join-Path $PSScriptRoot 'Program.cs'), $metadataPath)
     & $compiler @arguments
     if ($LASTEXITCODE -ne 0) { throw "C# compiler failed with exit code $LASTEXITCODE." }
@@ -56,6 +64,8 @@ namespace LanPower.ClientSetup {
     Write-Output "CORE_SHA256=$coreHash"
     Write-Output "UPDATER_SHA256=$updaterHash"
     Write-Output "PUBLIC_KEY_SHA256=$publicKeyHash"
+    Write-Output "RUNTIME_SHA256=$runtimeHash"
+    Write-Output "PLAYER_SHA256=$playerHash"
 }
 finally {
     if (Test-Path -LiteralPath $buildRoot) {

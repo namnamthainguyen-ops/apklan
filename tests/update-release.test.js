@@ -45,7 +45,7 @@ test('published stable update manifest is signed and pins exact release files in
   assert.equal(manifest.android.version, androidMetadata.match(/versionName\s+'([^']+)'/)[1]);
   assert.equal(manifest.windows.versionCode, Number(windowsMetadata.match(/versionCode = (\d+)/)[1]));
   assert.equal(manifest.windows.version, windowsMetadata.match(/version = '([^']+)'/)[1]);
-  for (const artifact of [manifest.android, ...['agent', 'core', 'updater', 'setup'].map(name => manifest.windows[name])]) {
+  for (const artifact of [manifest.android, ...['agent', 'core', 'updater', 'runtime', 'player', 'setup'].map(name => manifest.windows[name])]) {
     const match = artifact.url.match(/^https:\/\/raw\.githubusercontent\.com\/namnamthainguyen-ops\/apklan\/([a-f0-9]{40})\/(client|release)\/([A-Za-z0-9_.-]+)$/);
     assert.ok(match, 'Release files must use immutable repository commit URLs');
     const actual = crypto.createHash('sha256').update(read(`${match[2]}/${match[3]}`)).digest('hex');

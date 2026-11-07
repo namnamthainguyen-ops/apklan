@@ -33,7 +33,7 @@ def reset():
             device_id = f"00000000-0000-4000-8000-{index:012d}"
             DEVICES[device_id] = {"id": device_id, "hostname": f"CI-{room}-{index:02d}", "room": room,
                                   "mac": f"02:00:00:00:00:{index:02x}", "online": True,
-                                  "frozen": False, "pending": None, "failActions": [], "nonces": set()}
+                                  "frozen": False, "pending": None, "locked": False, "mediaVersion": "none", "failActions": [], "nonces": set()}
 
 
 def sign(key, canonical):
@@ -73,7 +73,7 @@ class Control(BaseHTTPRequestHandler):
             with LOCK:
                 for device_id, changes in body.get("devices", {}).items():
                     for key, value in changes.items():
-                        if key in {"online", "frozen", "pending", "failActions"}:
+                        if key in {"online", "frozen", "pending", "locked", "failActions"}:
                             DEVICES[device_id][key] = value
         else:
             self.send_error(404)
@@ -99,10 +99,13 @@ def handle_request(udp, remote, data):
                         continue
                     DISCOVERY_BY_ROOM[device["room"]] = DISCOVERY_BY_ROOM.get(device["room"], 0) + 1
                     response = {"type": "discovery", "requestNonce": nonce, "deviceId": device["id"],
-                                "hostname": device["hostname"], "mac": device["mac"], "agentVersion": "1.2.0",
-                                "uwf": uwf(device), "capabilities": "power,uwf,wolrelay"}
+                                "hostname": device["hostname"], "mac": device["mac"], "agentVersion": "1.3.0",
+                                "uwf": uwf(device), "capabilities": "power,uwf,wolrelay,sessionlock,media",
+                                "lockState": "locked" if device["locked"] else "unlocked", "mediaVersion": device["mediaVersion"],
+                                "mediaPort": 17842, "mediaCertSha256": "A" * 64}
                     response["signature"] = sign(key, f"discovery\n{nonce}\n{device['id']}\n{device['hostname']}\n{device['mac']}")
-                    response["stateSignature"] = sign(key, f"state\n{nonce}\n{device['id']}\n1.2.0\n{response['uwf']}\npower,uwf,wolrelay")
+                    response["stateSignature"] = sign(key, f"state\n{nonce}\n{device['id']}\n1.3.0\n{response['uwf']}\n{response['capabilities']}")
+                    response["lockSignature"] = sign(key, f"lockstate\n{nonce}\n{device['id']}\n{response['lockState']}\n{device['mediaVersion']}\n17842\n{response['mediaCertSha256']}")
                     send(udp, remote, response)
                 return
             if message.get("type") != "command":
@@ -120,12 +123,15 @@ def handle_request(udp, remote, data):
                 return
             device["nonces"].add(message["nonce"])
             action = message["action"]
-            rejected = action in device["failActions"] or action not in {"freeze", "unfreeze", "shutdown", "restart", "wake"}
+            rejected = action in device["failActions"] or action not in {"freeze", "unfreeze", "shutdown", "restart", "wake", "lock", "unlock"}
             status = "rejected" if rejected else "accepted"
             detail = "TEST_UWF_FAILURE" if rejected else "Power action accepted."
             if not rejected and action in {"freeze", "unfreeze"}:
                 device["pending"] = action == "freeze"
                 detail = f"UWF {action} scheduled. Restart required. {uwf(device)}"
+            if not rejected and action in {"lock", "unlock"}:
+                device["locked"] = action == "lock"
+                detail = "Interactive display confirmed " + action + "."
             response = {"type": "ack", "requestId": message["requestId"], "status": status, "message": detail}
             response["signature"] = sign(key, f"ack\n{message['requestId']}\n{status}")
             response["detailSignature"] = sign(key, f"ack-detail\n{message['requestId']}\n{status}\n{detail}")
