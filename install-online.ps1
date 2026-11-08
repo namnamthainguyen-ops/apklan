@@ -15,15 +15,15 @@ Set-StrictMode -Version Latest
 $AgentUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/StandaloneAgent.ps1'
 $AgentSha256 = 'B4BC235A360EE1526F52273651FB4A41FB152D659504BE6EBC6B5F65C7503AEB'
 $CoreUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Install-Core.ps1'
-$CoreSha256 = '59E121FB45E04817F2DD02DED0204BB24FE4EE76A47A78130AFADC8B62F9409C'
+$CoreSha256 = '2B2D6E4EEEB026D2632813CA1092EFF1883E0A17A314FBF119BEE8078725783D'
 $UpdaterUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Update-Agent.ps1'
 $UpdaterSha256 = '8B9DBD1BD8E79E8856B988D51D4AC898B7875D26A1725BB43F8345AA99D4C3E7'
 $PublicKeyUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Update-PublicKey.xml'
 $PublicKeySha256 = '050AB33ED6D45DDEF846DDE7D5882E2B1F698154C8306860DC70531A23EE0333'
 $RuntimeUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20.Runtime-1.4.0.dll'
-$RuntimeSha256 = 'A590E86332A005CD027CC16A082D3DACEB885D53A8E9CEB68E416A452B4047D8'
+$RuntimeSha256 = 'C1F4EBE4480F7AAA47C21469A9A4DE018A7175E01186810300D30AEDCCA0FD04'
 $PlayerUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20.Player-1.4.0.exe'
-$PlayerSha256 = '254EEFC8DAC8E72181328A78E3ECB5472F188536B7B4A335ED10FBC568B97207'
+$PlayerSha256 = '24F49A91780F7295DBD5196391FF7C496BFA5359074D11B1F3940B0F6C780121'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run PowerShell as Administrator.' }

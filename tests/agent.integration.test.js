@@ -23,8 +23,9 @@ async function startAgent(t, options = {}) {
   const port = socket.address().port;
   socket.close(); await once(socket, 'close');
   const key = options.roomKey ? crypto.pbkdf2Sync(options.roomKey, 'LanPower/RoomKey/v1', 210000, 32, 'sha256').toString('base64') : crypto.randomBytes(32).toString('base64');
-  const deviceId = crypto.randomUUID();
-  await fs.writeFile(path.join(root, 'config.json'), JSON.stringify({ managementKey: key, deviceId, port }));
+  const deviceId = options.savedDeviceId || crypto.randomUUID();
+  await fs.writeFile(path.join(root, 'config.json'), JSON.stringify({ managementKey: key, deviceId, port, ...(options.hardwareUuid ? { identityMode: 'hardware-v1' } : {}) }));
+  if (options.hardwareUuid) await fs.writeFile(path.join(root, 'hardware-uuid'), options.hardwareUuid);
   if (options.uwfFailure) await fs.writeFile(path.join(root, 'fail-uwf'), '1');
   if (options.lockFailure) await fs.writeFile(path.join(root, 'fail-lock'), '1');
   const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'Agent-Harness.ps1'), '-AgentPath', path.join(__dirname, '..', 'client', 'StandaloneAgent.ps1'), '-TestRoot', root], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -53,6 +54,24 @@ async function startAgent(t, options = {}) {
   }
   return { key, deviceId, child, exchange, output: () => output, errors: () => errors };
 }
+
+test('ghosted agents keep their room key but advertise distinct stable hardware identities', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const common = { roomKey: 'Ghost123', savedDeviceId: crypto.randomUUID() };
+  const a = await startAgent(t, { ...common, hardwareUuid: '12345678-1234-4234-9234-123456789012' });
+  const b = await startAgent(t, { ...common, hardwareUuid: '22345678-1234-4234-9234-123456789012' });
+  const rebooted = await startAgent(t, { ...common, hardwareUuid: '12345678-1234-4234-9234-123456789012' });
+  async function discover(agent) {
+    const nonce = crypto.randomUUID();
+    const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
+    assert.ok(reply);
+    assert.equal(reply.signature, sign(agent.key, `discovery\n${nonce}\n${reply.deviceId}\n${reply.hostname}\n${reply.mac}`));
+    return reply.deviceId;
+  }
+  const first = await discover(a), second = await discover(b);
+  assert.notEqual(first, second); assert.notEqual(first, common.savedDeviceId);
+  assert.equal(await discover(rebooted), first);
+  assert.equal(a.key, b.key);
+});
 
 test('real agent ignores malformed, oversized, unsigned and wrongly signed discovery; accepts valid HMAC', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
   const agent = await startAgent(t);

@@ -45,6 +45,16 @@ foreach ($edit in ($edits | Sort-Object Start -Descending)) {
     $source = $source.Remove($edit.Start, $edit.Length).Insert($edit.Start, $edit.Value)
 }
 $source = $source.Replace("'Global\LanPowerStandaloneAgent'", ("'Local\LanPowerAgentTest-" + [Guid]::NewGuid().ToString('N') + "'"))
+if (Test-Path -LiteralPath (Join-Path $TestRoot 'hardware-uuid')) {
+    $fixture = @'
+function Get-CimInstance {
+    param($ClassName, $ErrorAction)
+    if ($ClassName -ne 'Win32_ComputerSystemProduct') { throw 'Unexpected test WMI request' }
+    return [pscustomobject]@{ UUID = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'hardware-uuid')) }
+}
+'@
+    $source = $source.Insert($ast.ParamBlock.Extent.EndOffset, "`n" + $fixture + "`n")
+}
 if ($source -match 'Start-Process|shutdown\.exe|uwfmgr\.exe|dism\.exe|\[RoomTN20\.Runtime\.Controller\]') { throw 'Unsafe test harness: real OS/UI action remains.' }
 $testAgent = Join-Path $TestRoot 'StandaloneAgent.ps1'
 [IO.File]::WriteAllText($testAgent, $source, [Text.Encoding]::ASCII)

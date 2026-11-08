@@ -490,6 +490,7 @@ namespace RoomTN20.Runtime
                 if (!reused) missing.Add(id);
             }
             List<object> removed = new List<object>();
+            HashSet<string> currentIds = new HashSet<string>(StringComparer.Ordinal);
             if (Regex.IsMatch(current, @"\A[0-9a-f]{32}\z"))
             {
                 string previousPlaylist = Path.Combine(mediaRoot, current, "playlist.json");
@@ -499,10 +500,17 @@ namespace RoomTN20.Runtime
                 foreach (object value in DataFiles.Items(previous, "files"))
                 {
                     Dictionary<string, object> metadata = (Dictionary<string, object>)value;
+                    currentIds.Add(DataFiles.Text(metadata, "id"));
                     if (!wanted.Contains(DataFiles.Text(metadata, "id"))) removed.Add(new { id = DataFiles.Text(metadata, "id"), name = DataFiles.Text(metadata, "name") });
                 }
             }
-            byte[] plan = Encoding.UTF8.GetBytes(DataFiles.Json.Serialize(new { missing = new List<string>(missing), removed = removed }));
+            List<object> added = new List<object>();
+            foreach (object value in DataFiles.Items(playlist, "files"))
+            {
+                Dictionary<string, object> metadata = (Dictionary<string, object>)value;
+                if (!currentIds.Contains(DataFiles.Text(metadata, "id"))) added.Add(new { id = DataFiles.Text(metadata, "id"), name = DataFiles.Text(metadata, "name") });
+            }
+            byte[] plan = Encoding.UTF8.GetBytes(DataFiles.Json.Serialize(new { missing = new List<string>(missing), removed = removed, added = added }));
             string signature = Sign("media-plan\n" + nonce + "\n" + deviceId + "\n" + version + "\n" + DataFiles.Hash(plan));
             byte[] line = Encoding.UTF8.GetBytes(DataFiles.Json.Serialize(new { type = "media-plan", nonce = nonce, deviceId = deviceId, version = version, payload = Convert.ToBase64String(plan), signature = signature }) + "\n");
             output.Write(line, 0, line.Length);

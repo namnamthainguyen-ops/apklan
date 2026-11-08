@@ -53,7 +53,7 @@ internal static class MediaTransferSmoke
             return (Dictionary<string, object>)Json.DeserializeObject(Encoding.UTF8.GetString(bytes.ToArray()));
         }
     }
-    private static void Sync(int port, string pin, string version, byte[][] content, int expectedMissing, int expectedRemoved, bool corrupt)
+    private static void Sync(int port, string pin, string version, byte[][] content, int expectedMissing, int expectedRemoved, bool corrupt, int expectedAdded = 0)
     {
         List<object> files = new List<object>();
         long total = 0;
@@ -81,6 +81,7 @@ internal static class MediaTransferSmoke
             foreach (object id in (object[])plan["missing"]) Assert(missing.Add((string)id), "Duplicate missing ID");
             Assert(missing.Count == expectedMissing, "Unexpected missing count: " + missing.Count + " expected " + expectedMissing);
             Assert(((object[])plan["removed"]).Length == expectedRemoved, "Unexpected removed count");
+            Assert(((object[])plan["added"]).Length == expectedAdded, "Unexpected added count");
             int sent = 0;
             foreach (byte[] bytes in content) if (missing.Remove(Hash(bytes)))
             {
@@ -127,13 +128,13 @@ internal static class MediaTransferSmoke
             byte[] other = new byte[png.Length + 1]; Buffer.BlockCopy(png, 0, other, 0, png.Length); other[other.Length - 1] = 7;
             string v4 = new string('4', 32), v5 = new string('5', 32), v6 = new string('6', 32), v7 = new string('7', 32), v8 = new string('8', 32), v9 = new string('9', 32);
             Sync(port, pin, v3, new byte[][] { png }, 0, 0, false); // Duration/name-only edit: zero media bytes.
-            Sync(port, pin, v4, new byte[][] { png, other }, 1, 0, true);
+            Sync(port, pin, v4, new byte[][] { png, other }, 1, 0, true, 1);
             Assert(runtime.Snapshot().MediaVersion == v3, "Failed delta promoted content");
-            Sync(port, pin, v4, new byte[][] { png, other }, 1, 0, false);
+            Sync(port, pin, v4, new byte[][] { png, other }, 1, 0, false, 1);
             Sync(port, pin, v5, new byte[][] { other, png }, 0, 0, false); // Reorder only.
             Sync(port, pin, v6, new byte[][] { other }, 0, 1, false);
             Assert(!File.Exists(Path.Combine(data, "Media", v6, Hash(png) + ".png")), "Removed media remains in active playlist");
-            Sync(port, pin, v7, new byte[][] { png, other }, 0, 0, false); // Reuse previous generation.
+            Sync(port, pin, v7, new byte[][] { png, other }, 0, 0, false, 1); // Reuse previous generation.
             File.WriteAllBytes(Path.Combine(data, "Media", v7, Hash(png) + ".png"), damaged);
             Sync(port, pin, v8, new byte[][] { png, other }, 1, 0, false); // Damaged cache cannot be reused.
             Sync(port, pin, v9, new byte[0][], 0, 2, false); // Clearing requires no media upload.
