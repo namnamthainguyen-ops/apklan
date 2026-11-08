@@ -21,7 +21,7 @@ for (const scenario of ['valid-after-forgery', 'wrong-key', 'wrong-version', 'co
     const port = server.address().port;
     const deviceId = crypto.randomUUID();
     await fs.writeFile(path.join(root, 'config.json'), JSON.stringify({ deviceId, managementKey: key, port,
-      version: '1.3.1', versionCode: scenario === 'config-mismatch' ? 10 : 11 }));
+      version: '1.3.2', versionCode: scenario === 'config-mismatch' ? 11 : 12 }));
     t.after(async () => { server.close(); await fs.rm(root, { recursive: true, force: true }); });
     let requests = 0;
     server.on('message', (bytes, remote) => {
@@ -30,8 +30,8 @@ for (const scenario of ['valid-after-forgery', 'wrong-key', 'wrong-version', 'co
       requests++;
       const replyKey = scenario === 'wrong-key' || (scenario === 'valid-after-forgery' && requests === 1)
         ? Buffer.alloc(32, 12).toString('base64') : key;
-      const version = scenario === 'wrong-version' ? '1.3.0' : '1.3.1';
-      const code = scenario === 'wrong-version' ? 10 : 11;
+      const version = scenario === 'wrong-version' ? '1.3.1' : '1.3.2';
+      const code = scenario === 'wrong-version' ? 11 : 12;
       const reply = { type: 'discovery', requestNonce: request.nonce, deviceId, hostname: 'READY-FIXTURE',
         mac: '02:00:00:00:00:01', agentVersion: version, uwf: 'OFF', capabilities: 'power,uwf,wolrelay',
         clientVersionCode: code, latestVersion: version, updateStatus: 'current', updateMessage: 'fixture' };

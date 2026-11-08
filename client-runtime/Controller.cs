@@ -17,7 +17,11 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
-[assembly: System.Reflection.AssemblyVersion("1.3.1.0")]
+[assembly: System.Reflection.AssemblyVersion("1.3.2.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.3.2.0")]
+[assembly: System.Reflection.AssemblyProduct("Room TN20")]
+[assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
+[assembly: System.Reflection.AssemblyTitle("Room TN20 Runtime")]
 [assembly: TargetFramework(".NETFramework,Version=v4.7.2")]
 
 namespace RoomTN20.Runtime
@@ -268,8 +272,7 @@ namespace RoomTN20.Runtime
                     security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
                     security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
                     security.SetOwner(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null));
-                    security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null),
-                        PipeAccessRights.ReadData | PipeAccessRights.WriteData | PipeAccessRights.ReadAttributes | PipeAccessRights.ReadPermissions | PipeAccessRights.Synchronize, AccessControlType.Allow));
+                    DataFiles.GrantDisplayAccess(security);
                     pipe = new NamedPipeServerStream(DataFiles.PipeName(root), PipeDirection.InOut, 32, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 4096, 4096, security);
                     waitingPipe = pipe;
                     pipe.WaitForConnection();

@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -10,6 +13,17 @@ namespace RoomTN20.Runtime
 {
     internal static class DataFiles
     {
+        internal static PipeAccessRights DisplayAccess { get { return PipeAccessRights.ReadData | PipeAccessRights.WriteData |
+            PipeAccessRights.ReadAttributes | PipeAccessRights.ReadPermissions | PipeAccessRights.Synchronize; } }
+        internal static NamedPipeClientStream DisplayPipe(string name)
+        {
+            return new NamedPipeClientStream(".", name, DisplayAccess, PipeOptions.Asynchronous,
+                TokenImpersonationLevel.Identification, HandleInheritability.None);
+        }
+        internal static void GrantDisplayAccess(PipeSecurity security)
+        {
+            security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null), DisplayAccess, AccessControlType.Allow));
+        }
         internal static JavaScriptSerializer Json { get { return new JavaScriptSerializer { MaxJsonLength = 262144, RecursionLimit = 16 }; } }
         internal static string CanonicalRoot(string value)
         {

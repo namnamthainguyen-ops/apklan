@@ -6,6 +6,7 @@ using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Principal;
+using System.Security.AccessControl;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -17,9 +18,11 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Screen = System.Windows.Forms.Screen;
 
-[assembly: System.Reflection.AssemblyVersion("1.3.1.0")]
+[assembly: System.Reflection.AssemblyVersion("1.3.2.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.3.2.0")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
-[assembly: System.Reflection.AssemblyProduct("Room TN20 Display")]
+[assembly: System.Reflection.AssemblyProduct("Room TN20")]
+[assembly: System.Reflection.AssemblyTitle("Room TN20 Display")]
 [assembly: TargetFramework(".NETFramework,Version=v4.7.2")]
 
 namespace RoomTN20.Runtime
@@ -106,7 +109,10 @@ namespace RoomTN20.Runtime
             {
                 try
                 {
-                    using (NamedPipeClientStream pipe = new NamedPipeClientStream(".", DataFiles.PipeName(root), PipeDirection.InOut, PipeOptions.Asynchronous, TokenImpersonationLevel.Identification))
+                    // Request the same limited rights granted by the controller.
+                    // PipeDirection.InOut requests generic write rights, including
+                    // rights deliberately withheld from ordinary display users.
+                    using (NamedPipeClientStream pipe = DataFiles.DisplayPipe(DataFiles.PipeName(root)))
                     {
                         currentPipe = pipe;
                         pipe.Connect(3000);
