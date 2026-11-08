@@ -14,7 +14,9 @@ internal static class PipeAccessTest
     [DllImport("advapi32.dll", SetLastError=true)] private static extern bool CreateRestrictedToken(IntPtr existing, uint flags, uint disabledCount, ref Sid disabled, uint privilegeCount, IntPtr privileges, uint restrictedCount, IntPtr restricted, out IntPtr token);
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
     [DllImport("advapi32.dll", SetLastError=true)] private static extern bool DuplicateToken(IntPtr existing, int level, out IntPtr token);
-    private static int Main()
+    [DllImport("kernel32.dll", SetLastError=true)] private static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] private static extern bool QueryFullProcessImageName(IntPtr process, int flags, System.Text.StringBuilder value, ref int length);
+    private static int Main(string[] args)
     {
         IntPtr original=IntPtr.Zero, restricted=IntPtr.Zero, sidMemory=IntPtr.Zero;
         try {
@@ -34,6 +36,16 @@ internal static class PipeAccessTest
                 using(WindowsIdentity identity=new WindowsIdentity(restricted))
                 using(WindowsImpersonationContext context=identity.Impersonate()) {
                     if(new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator)) throw new Exception("Test token is still administrator");
+                    if(args.Length==2 && args[0]=="--system-process") {
+                        IntPtr system=OpenProcess(0x1000,false,Int32.Parse(args[1]));
+                        if(system==IntPtr.Zero) throw new Exception("Standard-user SYSTEM process query denied: "+Marshal.GetLastWin32Error());
+                        try { int length=32768; var path=new System.Text.StringBuilder(length);
+                            if(!QueryFullProcessImageName(system,0,path,ref length)) throw new Exception("SYSTEM image query failed: "+Marshal.GetLastWin32Error());
+                            string expected=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),@"System32\WindowsPowerShell\v1.0\powershell.exe");
+                            if(!String.Equals(path.ToString(),expected,StringComparison.OrdinalIgnoreCase)) throw new Exception("Unexpected SYSTEM image path");
+                        } finally { CloseHandle(system); }
+                        Console.WriteLine("STANDARD_USER_SYSTEM_IDENTITY=PASS");
+                    }
                     bool denied=false;
                     try { using(NamedPipeClientStream old=new NamedPipeClientStream(".",name,PipeDirection.InOut)) old.Connect(2000); }
                     catch(UnauthorizedAccessException) { denied=true; }

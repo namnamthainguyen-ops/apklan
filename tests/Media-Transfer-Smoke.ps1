@@ -40,6 +40,13 @@ try {
         Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Force | Out-Null
         Start-ScheduledTask -TaskName $taskName
         [void](Wait-LanPowerInstalledAgent -InstallPath $agentRoot -ManagementKey $fixtureKey -Port $udpPort -RequireMedia -ExpectedVersion '1.3.2' -ExpectedVersionCode 12)
+        $agentProcess = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like ('*' + (Join-Path $agentRoot 'StandaloneAgent.ps1') + '*') } | Select-Object -First 1
+        if (-not $agentProcess) { throw 'SYSTEM agent process was not found.' }
+        $probeExe = Join-Path $testRoot 'Pipe-Access-Test.exe'
+        & $compiler /nologo /target:exe /langversion:5 ("/out:$probeExe") /reference:System.dll /reference:System.Core.dll /reference:System.Web.Extensions.dll (Join-Path $repoRoot 'client-runtime\Shared.cs') (Join-Path $repoRoot 'client-runtime\Pipe-Access-Test.cs')
+        if ($LASTEXITCODE -ne 0) { throw 'Standard-user identity probe compilation failed.' }
+        & $probeExe --system-process $agentProcess.ProcessId
+        if ($LASTEXITCODE -ne 0) { throw 'Standard-user SYSTEM identity validation failed.' }
         Write-Output 'SYSTEM_MEDIA_RECEIVER_READY=PASS (real agent/SYSTEM, signed receiver readiness; inert player fixture, no UI or power/UWF commands)'
     }
     finally {
