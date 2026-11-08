@@ -1,4 +1,4 @@
-# Room TN20 — Windows 1.3.2 / Android 1.3.1
+# Room TN20 — Windows 1.3.3 / Android 1.3.1
 
 [![Verify Room TN20](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml/badge.svg)](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml)
 
@@ -20,13 +20,13 @@ Client nhận biết Windows Server 2025, Home và Pro: cài phần quản lý n
 
 **Bản 1.3.1:** Mạng LAN/VPN và Quảng cáo phòng nằm ngang hàng. Trước khi gửi ảnh/video, app quét và xác thực lại máy con; hiển thị phiên bản và nguyên nhân bộ nhận quảng cáo chưa hoạt động. Bộ cài xác minh riêng bộ nhận trước khi báo sẵn sàng; client thử lại nếu ổ dữ liệu chưa sẵn sàng lúc Windows khởi động. Sửa gửi lại ngay sau khi tải lỗi.
 
-**Client 1.3.2:** sửa lỗi trình quảng cáo bị từ chối kết nối bằng tài khoản Windows thường, gây báo nhầm chưa có phiên người dùng dù đã mở desktop. Đã kiểm thử tái hiện lỗi cũ và kết nối đúng quyền sau sửa.
+**Client 1.3.3:** sửa cả hai lỗi quyền khiến quảng cáo báo nhầm chưa có phiên người dùng: quyền kết nối của player và yêu cầu tài khoản thường đọc đường dẫn tiến trình SYSTEM. Đã kiểm thử tái hiện Access Denied và xác thực broker SYSTEM thật sau sửa.
 
 Mỗi phòng có danh sách máy riêng. Chạm một máy để xem tên, IP, MAC, lần phản hồi gần nhất, trạng thái đóng băng và các nút điều khiển. Chọn nhiều máy hoặc **Chọn tất cả** để thao tác cả phòng; kết quả được báo theo từng máy.
 
 ## Tải về
 
-- **[Tải bộ cài client Windows 1.3.2 — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.3.2.exe)** — nhập key phòng rồi chọn **Cài / Cài đè**; chứa sẵn phần khóa/quảng cáo và tự chuẩn bị UWF khi được hỗ trợ.
+- **[Tải bộ cài client Windows 1.3.3 — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.3.3.exe)** — nhập key phòng rồi chọn **Cài / Cài đè**; chứa sẵn phần khóa/quảng cáo và tự chuẩn bị UWF khi được hỗ trợ.
 - **[Tải APK Room TN20 1.3.1](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.3.1.apk)** — Android 8.0 trở lên, cùng chữ ký để nâng cấp và giữ dữ liệu phòng.
 - [Tải toàn bộ mã nguồn và bộ cài Windows ZIP](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip).
 - [Xem script cài Windows online](https://github.com/namnamthainguyen-ops/apklan/blob/main/install-online.ps1).
@@ -44,7 +44,7 @@ Tự chọn key gồm đúng **8 ký tự ASCII in được**, phân biệt hoa/
 
 ### Bước 2 — Cài một file EXE trên từng máy Windows
 
-1. [Tải `RoomTN20-ClientSetup-1.3.2.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.3.2.exe), có thể chép cùng file này sang tất cả máy client. Để dùng quảng cáo, chuẩn bị ổ D: chưa đóng băng.
+1. [Tải `RoomTN20-ClientSetup-1.3.3.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.3.3.exe), có thể chép cùng file này sang tất cả máy client. Để dùng quảng cáo, chuẩn bị ổ D: chưa đóng băng.
 2. Mở file với quyền Administrator, nhập key của phòng rồi bấm **Cài / Cài đè**. Không cần gỡ bản cũ; định danh máy và mạng VPN đã lưu được giữ lại nếu không nhập cấu hình mới.
 3. Bộ cài kiểm tra client đã phản hồi đúng khóa/phiên bản, báo **Cài đặt thành công** rồi tự đóng sau 3 giây. Nếu UWF cần restart, thông báo sẽ ghi rõ; bạn tự khởi động lại khi sẵn sàng.
 
@@ -55,7 +55,7 @@ EXE tự cài/chuẩn bị UWF khi hệ điều hành hỗ trợ, không cần c
 **Windows IoT Enterprise/Enterprise/Education:** nếu chuẩn bị UWF bị lỗi thật, bộ cài giữ thông báo và không tự đóng như một lần cài hoàn tất. Mã lỗi DISM, phiên bản Windows và đường dẫn nhật ký được hiển thị để xử lý đúng nguyên nhân. Nhật ký chuẩn bị UWF nằm tại `C:\ProgramData\LanPowerStandalone\uwf-preparation.log`. Thiếu nguồn thành phần Windows hoặc chính sách Windows Update/WSUS có thể cần sửa nguồn cài tương ứng; bộ cài không báo UWF thành công khi kiểm tra thất bại.
 
 ```text
-EXE SHA-256: F439166BBE0CCC04E2FF63EA5CBFDFBC1ADA41E80AE03823DD24D4CC729357EB
+EXE SHA-256: C43A3D62FD4F6330957D7832C053ADA3F452674715FC0096EE68FC951650ABFB
 ```
 
 Bản EXE hiện chưa ký Authenticode; Windows có thể hiển thị nhà xuất bản chưa xác định. Thương hiệu hiển thị trong ứng dụng là **Room TN20 — Công ty TNHH TN20**, website **20.com.vn**.
@@ -70,7 +70,7 @@ $ErrorActionPreference = 'Stop'
 $key = Read-Host 'Nhap key phong gom 8 ky tu, khong khoang trang'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/install-online.ps1'
-$expected = '7E89ED5B2E06359F2C12EFA67BD0AA6B315B3F93D43BE479B77803F1C913B34D'
+$expected = '3F4CD470E128342CDB535BB5DAA471BF25371AFB5050A7D22190FBAC5D7067C0'
 $file = Join-Path $env:TEMP ('lanpower-install-' + [Guid]::NewGuid().ToString('N') + '.ps1')
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
 if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $expected) { throw 'Installer checksum mismatch.' }
@@ -104,7 +104,7 @@ Nếu chưa quét thấy máy, kiểm tra khóa hai bên giống nhau, agent đ�
 
 ### Quảng cáo riêng cho từng phòng và khóa/mở máy
 
-1. Cài client 1.3.2 trên các máy; ổ `D:` phải tồn tại và không bị UWF bảo vệ. Lần nâng cấp chương trình trên C: cần mở đóng băng và khởi động lại trước khi cài. Sau đó có thể đóng băng C: trở lại.
+1. Cài client 1.3.3 trên các máy; ổ `D:` phải tồn tại và không bị UWF bảo vệ. Lần nâng cấp chương trình trên C: cần mở đóng băng và khởi động lại trước khi cài. Sau đó có thể đóng băng C: trở lại.
 2. Trên Android, mở đúng phòng và chọn phần quảng cáo. Chọn ảnh JPG/PNG và video MP4 theo thứ tự muốn phát. Mỗi phòng lưu một bộ nội dung riêng trong điện thoại.
 3. Gửi quảng cáo cho toàn phòng đang mở. Chỉ các máy online có hỗ trợ quảng cáo và đúng key phòng nhận nội dung; máy offline hoặc bản cũ được báo riêng. Khi máy online, gửi lại để hoàn tất. Đổi sang phòng khác không làm thay nội dung phòng trước.
 4. Chọn **Khóa** để hiện quảng cáo toàn màn hình; **Mở khóa** để trả desktop. Có thể điều khiển từng máy hoặc chọn nhiều máy trong phòng. Trạng thái “đã khóa” cần player trong phiên người dùng xác nhận; chưa có người đăng nhập sẽ được báo riêng, không coi là đã khóa thành công.
@@ -185,7 +185,7 @@ Trong Windows bật `Wake on Magic Packet` của card Ethernet nếu driver có 
 
 ## 3. Cài agent trên mỗi máy
 
-Ưu tiên dùng [một file EXE ở Bước 2](#huong-dan-cai-dat). Nếu cần cài từ mã nguồn, tải [ZIP mã nguồn](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip), giải nén toàn bộ rồi mở PowerShell Administrator trong thư mục `client`. Giữ nguyên thư mục `client` và `release` của ZIP để có đủ script và hai thành phần `RoomTN20.Runtime-1.3.2.dll`, `RoomTN20.Player-1.3.2.exe`. Nếu thiếu hai tệp này, core chỉ tải bản đúng SHA-256 đã ghim từ GitHub, cần Internet:
+Ưu tiên dùng [một file EXE ở Bước 2](#huong-dan-cai-dat). Nếu cần cài từ mã nguồn, tải [ZIP mã nguồn](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip), giải nén toàn bộ rồi mở PowerShell Administrator trong thư mục `client`. Giữ nguyên thư mục `client` và `release` của ZIP để có đủ script và hai thành phần `RoomTN20.Runtime-1.3.3.dll`, `RoomTN20.Player-1.3.3.exe`. Nếu thiếu hai tệp này, core chỉ tải bản đúng SHA-256 đã ghim từ GitHub, cần Internet:
 
 ```powershell
 $key = Read-Host 'Nhap key phong gom 8 ky tu, khong khoang trang'
@@ -303,4 +303,4 @@ Pilot một t540:
 
 ## Code signing policy và giấy phép
 
-Mã nguồn phát hành theo [MIT](LICENSE). Hồ sơ xin ký miễn phí đang được chuẩn bị; chưa có chứng chỉ Authenticode công khai. Xem [Code signing policy](docs/code-signing-policy.md).
+Mã nguồn phát hành theo [MIT](LICENSE). Hồ sơ xin ký miễn phí đã gửi SignPath và đang chờ xét duyệt; chưa có chứng chỉ Authenticode công khai. Xem [Code signing policy](docs/code-signing-policy.md).

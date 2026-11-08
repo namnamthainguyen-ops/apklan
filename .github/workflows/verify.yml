@@ -61,19 +61,19 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path '.ci-client-setup/published', '.ci-client-setup/built' -Force | Out-Null
-          Copy-Item -LiteralPath 'release/RoomTN20-ClientSetup-1.3.2.exe' -Destination '.ci-client-setup/published/RoomTN20-ClientSetup-1.3.2.exe'
+          Copy-Item -LiteralPath 'release/RoomTN20-ClientSetup-1.3.3.exe' -Destination '.ci-client-setup/published/RoomTN20-ClientSetup-1.3.3.exe'
           ./client-runtime/Build.ps1 -OutputDirectory '.ci-client-setup/runtime-built'
           ./client-runtime/Test.ps1 -OutputDirectory '.ci-client-setup/runtime-built'
           ./client-runtime/Test.ps1
-          ./client-installer/Build.ps1 -OutputPath '.ci-client-setup/built/RoomTN20-ClientSetup-1.3.2.exe'
+          ./client-installer/Build.ps1 -OutputPath '.ci-client-setup/built/RoomTN20-ClientSetup-1.3.3.exe'
       - name: Verify embedded payload hashes, KDF and in-process form contract
         shell: powershell
         run: |
-          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/built/RoomTN20-ClientSetup-1.3.2.exe'
-          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/published/RoomTN20-ClientSetup-1.3.2.exe'
+          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/built/RoomTN20-ClientSetup-1.3.3.exe'
+          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/published/RoomTN20-ClientSetup-1.3.3.exe'
       - name: Install from single published EXE, verify SYSTEM agent, reinstall and uninstall
         shell: powershell
-        run: ./tests/Install-Smoke.ps1 -InstallerExe '.ci-client-setup/published/RoomTN20-ClientSetup-1.3.2.exe'
+        run: ./tests/Install-Smoke.ps1 -InstallerExe '.ci-client-setup/published/RoomTN20-ClientSetup-1.3.3.exe'
       - name: Record installer checksums
         shell: powershell
         run: |

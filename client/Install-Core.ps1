@@ -356,7 +356,7 @@ function Resolve-LanPowerRuntimePayload {
     # core without accepting unsigned sidecars or changing its trust key.
     $fileName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime-1.3.3.dll' } else { 'RoomTN20.Player-1.3.3.exe' }
     $installedName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime.dll' } else { 'RoomTN20.Player.exe' }
-    $expectedHash = if ($Kind -eq 'runtime') { '3D6552D55B7646E703AF217B0527AA3F94C99C805D4A098EA11D52223A9A23B1' } else { '555932A6DF0BBB55260AC1CC07FC9E2231CB27C0C519D31CF40ED5EB7413C13F' }
+    $expectedHash = if ($Kind -eq 'runtime') { '7FCEF51AFA6A682132AA2CCA28839937C672D76EDC2967ED307B7CD9D9C08622' } else { 'FB5594BBE28954C29AED7EB119F86D04934F4189FFB99626B88D3E74CEC5B97E' }
     if (-not $Source) {
         $sourceTreeFile = Join-Path (Split-Path -Parent $PayloadRoot) ('release\' + $fileName)
         $extractedFile = Join-Path $PayloadRoot $installedName

@@ -4,7 +4,7 @@ Room TN20 is maintained by Công ty TNHH TN20, https://20.com.vn, and released u
 
 ## Current status
 
-The project is preparing an application for the free SignPath Foundation open-source signing program. Approval and a publicly trusted Authenticode signature have **not** yet been obtained. Existing Windows releases must not be represented as publicly signed. The RSA signature on update manifests is a separate integrity mechanism; it does not establish Windows publisher trust. Self-signed certificates are not a substitute for a publicly trusted code-signing certificate.
+An application for the free SignPath Foundation open-source signing program was submitted on 2026-11-08. SignPath's form confirmed receipt. Approval and a publicly trusted Authenticode signature have **not** yet been obtained. Existing Windows releases must not be represented as publicly signed. The RSA signature on update manifests is a separate integrity mechanism; it does not establish Windows publisher trust. Self-signed certificates are not a substitute for a publicly trusted code-signing certificate.
 
 If the application is approved, the project will publish the provider's required attribution and signing identity here. SignPath Foundation's free signing identity is SignPath Foundation, not a certificate issued in TN20's company name.
 
