@@ -37,13 +37,7 @@ internal static class PipeAccessTest
                 using(WindowsImpersonationContext context=identity.Impersonate()) {
                     if(new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator)) throw new Exception("Test token is still administrator");
                     if(args.Length==2 && args[0]=="--system-process") {
-                        IntPtr system=OpenProcess(0x1000,false,Int32.Parse(args[1]));
-                        if(system==IntPtr.Zero) throw new Exception("Standard-user SYSTEM process query denied: "+Marshal.GetLastWin32Error());
-                        try { int length=32768; var path=new System.Text.StringBuilder(length);
-                            if(!QueryFullProcessImageName(system,0,path,ref length)) throw new Exception("SYSTEM image query failed: "+Marshal.GetLastWin32Error());
-                            string expected=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),@"System32\WindowsPowerShell\v1.0\powershell.exe");
-                            if(!String.Equals(path.ToString(),expected,StringComparison.OrdinalIgnoreCase)) throw new Exception("Unexpected SYSTEM image path");
-                        } finally { CloseHandle(system); }
+                        DataFiles.ValidateDisplayProcess(Int32.Parse(args[1]));
                         Console.WriteLine("STANDARD_USER_SYSTEM_IDENTITY=PASS");
                     }
                     bool denied=false;

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.IO.Pipes;
 using System.Security.AccessControl;
 using System.Security.Principal;
@@ -23,6 +25,22 @@ namespace RoomTN20.Runtime
         internal static void GrantDisplayAccess(PipeSecurity security)
         {
             security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null), DisplayAccess, AccessControlType.Allow));
+        }
+        [DllImport("kernel32.dll", SetLastError=true)] private static extern bool GetNamedPipeServerProcessId(IntPtr pipe, out uint pid);
+        internal static void ValidateDisplayProcess(int pid)
+        {
+            using(Process process=Process.GetProcessById(pid))
+                if(process.SessionId!=0) throw new InvalidOperationException("DISPLAY_SERVER_NOT_SYSTEM_SESSION");
+        }
+        internal static void ValidateDisplayBroker(NamedPipeClientStream pipe)
+        {
+            SecurityIdentifier owner=(SecurityIdentifier)pipe.GetAccessControl().GetOwner(typeof(SecurityIdentifier));
+            if(owner.Value!="S-1-5-18") throw new InvalidOperationException("DISPLAY_PIPE_OWNER_NOT_SYSTEM");
+            uint pid;
+            if(!GetNamedPipeServerProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out pid)) throw new InvalidOperationException("DISPLAY_SERVER_UNKNOWN");
+            // The kernel-owned SYSTEM pipe is the trust boundary. A standard
+            // user must not need PROCESS_QUERY access to a SYSTEM executable.
+            ValidateDisplayProcess((int)pid);
         }
         internal static JavaScriptSerializer Json { get { return new JavaScriptSerializer { MaxJsonLength = 262144, RecursionLimit = 16 }; } }
         internal static string CanonicalRoot(string value)

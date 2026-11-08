@@ -18,8 +18,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Screen = System.Windows.Forms.Screen;
 
-[assembly: System.Reflection.AssemblyVersion("1.3.2.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.3.2.0")]
+[assembly: System.Reflection.AssemblyVersion("1.3.3.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.3.3.0")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Display")]
@@ -116,16 +116,7 @@ namespace RoomTN20.Runtime
                     {
                         currentPipe = pipe;
                         pipe.Connect(3000);
-                        SecurityIdentifier owner = (SecurityIdentifier)pipe.GetAccessControl().GetOwner(typeof(SecurityIdentifier));
-                        if (owner.Value != "S-1-5-18") throw new InvalidOperationException("DISPLAY_PIPE_OWNER_NOT_SYSTEM");
-                        uint serverId;
-                        if (!GetNamedPipeServerProcessId(pipe.SafePipeHandle.DangerousGetHandle(), out serverId)) throw new InvalidOperationException("DISPLAY_SERVER_UNKNOWN");
-                        using (Process process = Process.GetProcessById((int)serverId))
-                        {
-                            if (process.SessionId != 0) throw new InvalidOperationException("DISPLAY_SERVER_NOT_SYSTEM_SESSION");
-                            string systemPowerShell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), @"System32\WindowsPowerShell\v1.0\powershell.exe");
-                            if (!String.Equals(ProcessImage((int)serverId), systemPowerShell, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("DISPLAY_SERVER_PATH_INVALID");
-                        }
+                        DataFiles.ValidateDisplayBroker(pipe);
                         using (StreamWriter writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, true))
                         {
                             while (!disposed && pipe.IsConnected)

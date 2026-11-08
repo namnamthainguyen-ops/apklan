@@ -7,13 +7,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File client-runtime/Build.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File client-runtime/Test.ps1
 ```
 
-Outputs: `release/RoomTN20.Runtime-1.3.2.dll` and `release/RoomTN20.Player-1.3.2.exe`. Install them as `RoomTN20.Runtime.dll` beside the protected SYSTEM agent and `Display/RoomTN20.Player.exe` in the read/execute-only display subdirectory. The player is standalone and does not require the runtime DLL to be readable by the interactive user.
+Outputs: `release/RoomTN20.Runtime-1.3.3.dll` and `release/RoomTN20.Player-1.3.3.exe`. Install them as `RoomTN20.Runtime.dll` beside the protected SYSTEM agent and `Display/RoomTN20.Player.exe` in the read/execute-only display subdirectory. The player is standalone and does not require the runtime DLL to be readable by the interactive user.
 
 `Controller.Start(dataRoot, derivedManagementKey, deviceId, port, certificatePfxPath, playerExePath)` starts the TLS 1.2 upload listener and local display control. Use a protected empty-password PFX with a private key. The published pin is SHA-256 of the leaf certificate's DER bytes. The agent only starts this runtime when `runtimeDataRoot` is configured; power management remains available if D: or the runtime is unavailable.
 
 `Snapshot()` returns `LockState`, `DesiredLocked`, `MediaVersion`, `MediaPort`, `MediaCertSha256`, and `PlayerCount`. Lock states are `locked`, `unlocked`, `pending`, and `ui-offline`; the initial media version is `none`. `SetLocked(bool)` persists the desired state and waits up to eight seconds for the current console player's rendered acknowledgement. No player, secure desktop or a timeout produces an error rather than claiming that the desktop was locked. Heartbeat acknowledgement expires after ten seconds.
 
-The player runs as the signed-in standard user. The SYSTEM runtime attempts to launch it with that console user's token and retries after a crash. The installer can also register a limited per-user logon task. The named pipe only accepts the protected player's actual process path/session; the player checks pipe ownership by SYSTEM, session zero and the native Windows PowerShell server path. Pipe writes are asynchronous and bounded. No code intercepts or bypasses Ctrl+Alt+Del or Windows authentication. This is a room-use overlay, not Windows credential locking or a kiosk security boundary.
+The player runs as the signed-in standard user. The SYSTEM runtime attempts to launch it with that console user's token and retries after a crash. The installer can also register a limited per-user logon task. The named pipe only accepts the protected player's actual process path/session; the player checks pipe ownership by SYSTEM and session zero without requiring access to the privileged process executable. Pipe writes are asynchronous and bounded. No code intercepts or bypasses Ctrl+Alt+Del or Windows authentication. This is a room-use overlay, not Windows credential locking or a kiosk security boundary.
 
 Local administrative recovery (run an elevated terminal):
 

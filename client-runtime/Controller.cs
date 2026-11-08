@@ -17,8 +17,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
-[assembly: System.Reflection.AssemblyVersion("1.3.2.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.3.2.0")]
+[assembly: System.Reflection.AssemblyVersion("1.3.3.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.3.3.0")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Runtime")]
@@ -66,6 +66,7 @@ namespace RoomTN20.Runtime
         private readonly string pin;
         private int mediaWorkers;
         private int securedItems;
+        private string playerIssue = "PLAYER_NOT_CONNECTED";
 
         public static Controller Start(string dataRoot, string keyBase64, string deviceId, int port, string certificatePath, string playerExePath)
         {
@@ -168,7 +169,7 @@ namespace RoomTN20.Runtime
                 requestGeneration = generation;
                 Broadcast();
             }
-            EnsurePlayer();
+            EnsurePlayer(true);
             DateTime deadline = DateTime.UtcNow.AddSeconds(8);
             while (DateTime.UtcNow < deadline)
             {
@@ -182,7 +183,9 @@ namespace RoomTN20.Runtime
                 }
                 Thread.Sleep(100);
             }
-            throw new InvalidOperationException("LOCK_UI_UNAVAILABLE_OR_TIMEOUT: Desired state was saved, but no current-console player confirmed it.");
+            uint active = WTSGetActiveConsoleSessionId();
+            if(active==0 || active==UInt32.MaxValue) throw new InvalidOperationException("LOCK_NO_CONSOLE_USER: No signed-in console session is available. Desired state was saved.");
+            lock(gate) throw new InvalidOperationException("LOCK_PLAYER_UNCONFIRMED: session=" + active + "; " + playerIssue + ". Desired state saved; display has not confirmed.");
         }
         private void Tick()
         {
@@ -207,13 +210,13 @@ namespace RoomTN20.Runtime
             }
             catch { /* No system lock/reboot fallback. Desired state remains recoverable. */ }
         }
-        private void EnsurePlayer()
+        private void EnsurePlayer(bool force = false)
         {
             lock (gate)
             {
                 uint session = WTSGetActiveConsoleSessionId();
                 if (disposed || session == UInt32.MaxValue || session == 0 || players.Exists(delegate(PlayerConnection player) { return player.SessionId == session; }) ||
-                    (DateTime.UtcNow - lastLaunch).TotalSeconds < 30) return;
+                    (!force && (DateTime.UtcNow - lastLaunch).TotalSeconds < 30)) return;
                 lastLaunch = DateTime.UtcNow;
                 LaunchInteractivePlayer(session);
             }
@@ -221,7 +224,7 @@ namespace RoomTN20.Runtime
         private void LaunchInteractivePlayer(uint session)
         {
             IntPtr token;
-            if (!WTSQueryUserToken(session, out token)) return;
+            if (!WTSQueryUserToken(session, out token)) { playerIssue = "USER_TOKEN_FAILED error=" + Marshal.GetLastWin32Error(); return; }
             IntPtr environment = IntPtr.Zero;
             PROCESS_INFORMATION process = new PROCESS_INFORMATION();
             try
@@ -231,8 +234,9 @@ namespace RoomTN20.Runtime
                 start.cb = Marshal.SizeOf(typeof(STARTUPINFO));
                 start.lpDesktop = @"winsta0\default";
                 string command = "\"" + playerPath + "\" --data-root \"" + root + "\"";
-                CreateProcessAsUser(token, playerPath, new StringBuilder(command), IntPtr.Zero, IntPtr.Zero, false,
+                bool started = CreateProcessAsUser(token, playerPath, new StringBuilder(command), IntPtr.Zero, IntPtr.Zero, false,
                     hasEnvironment ? 0x00000400 : 0, environment, Path.GetDirectoryName(playerPath), ref start, out process);
+                playerIssue = started ? "PLAYER_STARTED_WAITING_FOR_CONNECTION" : "PLAYER_START_FAILED error=" + Marshal.GetLastWin32Error();
             }
             finally
             {
@@ -301,6 +305,7 @@ namespace RoomTN20.Runtime
                 {
                     foreach (PlayerConnection previous in players.FindAll(delegate(PlayerConnection value) { return value.SessionId == session; })) { previous.Pipe.Dispose(); players.Remove(previous); }
                     players.Add(player);
+                    playerIssue = "PLAYER_CONNECTED_WAITING_FOR_SCREEN_ACK";
                     Broadcast();
                 }
                 while (!disposed && pipe.IsConnected)
