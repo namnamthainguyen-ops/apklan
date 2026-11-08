@@ -41,6 +41,14 @@ internal static class RuntimeUnit
             Dictionary<string, object> header = new Dictionary<string, object> { { "deviceId", device }, { "timestamp", timestamp }, { "nonce", nonce }, { "mediaVersion", version }, { "totalBytes", 16L }, { "payload", Convert.ToBase64String(payload) }, { "signature", signature } };
             MediaUploadDescriptor valid = Controller.ReadMediaEnvelopeJson(Json.Serialize(header), key, device, timestamp);
             if (valid.Version != version || valid.TotalBytes != 16 || valid.Nonce != nonce) throw new Exception("Valid upload descriptor mismatch.");
+            header["transferMode"] = "delta-v1";
+            Reject(delegate { Controller.ReadMediaEnvelopeJson(Json.Serialize(header), key, device, timestamp); }, "unsigned delta mode");
+            using (HMACSHA256 hmac = new HMACSHA256(Convert.FromBase64String(key))) header["signature"] = Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(canonical + "\ndelta-v1")));
+            if (Controller.ReadMediaEnvelopeJson(Json.Serialize(header), key, device, timestamp).TransferMode != "delta-v1") throw new Exception("Delta mode not preserved");
+            header["transferMode"] = "unknown";
+            Reject(delegate { Controller.ReadMediaEnvelopeJson(Json.Serialize(header), key, device, timestamp); }, "unknown delta mode");
+            header.Remove("transferMode");
+            header["signature"] = signature;
             Reject(delegate { Controller.ReadMediaEnvelopeJson(Json.Serialize(header), key, device, timestamp + 121); }, "expired timestamp");
             Reject(delegate { Controller.ReadMediaEnvelopeJson(Json.Serialize(header), key, "other-device", timestamp); }, "wrong device");
             header["totalBytes"] = 17L;

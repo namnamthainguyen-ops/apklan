@@ -7,7 +7,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File client-runtime/Build.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File client-runtime/Test.ps1
 ```
 
-Outputs: `release/RoomTN20.Runtime-1.3.3.dll` and `release/RoomTN20.Player-1.3.3.exe`. Install them as `RoomTN20.Runtime.dll` beside the protected SYSTEM agent and `Display/RoomTN20.Player.exe` in the read/execute-only display subdirectory. The player is standalone and does not require the runtime DLL to be readable by the interactive user.
+Outputs: `release/RoomTN20.Runtime-1.4.0.dll` and `release/RoomTN20.Player-1.4.0.exe`. Install them as `RoomTN20.Runtime.dll` beside the protected SYSTEM agent and `Display/RoomTN20.Player.exe` in the read/execute-only display subdirectory. The player is standalone and does not require the runtime DLL to be readable by the interactive user.
 
 `Controller.Start(dataRoot, derivedManagementKey, deviceId, port, certificatePfxPath, playerExePath)` starts the TLS 1.2 upload listener and local display control. Use a protected empty-password PFX with a private key. The published pin is SHA-256 of the leaf certificate's DER bytes. The agent only starts this runtime when `runtimeDataRoot` is configured; power management remains available if D: or the runtime is unavailable.
 

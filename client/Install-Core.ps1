@@ -1,3 +1,24 @@
+function Get-LanPowerHardwareDeviceId {
+    # Do not use MachineGuid, the Windows SID or a copied config GUID: ghost copies them.
+    $identity = ''
+    try {
+        $uuid = [string](Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction Stop).UUID
+        $parsed = [Guid]::Empty
+        if ([Guid]::TryParse($uuid, [ref]$parsed) -and $parsed -ne [Guid]::Empty -and $parsed.ToString('N') -ne ('f' * 32)) { $identity = 'smbios:' + $parsed.ToString('N') }
+    } catch { }
+    if (-not $identity) {
+        $addresses = @(Get-CimInstance -ClassName Win32_NetworkAdapter -ErrorAction Stop | Where-Object { $_.PhysicalAdapter -and $_.MACAddress -match '\A(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\z' } | ForEach-Object { ([string]$_.MACAddress).ToUpperInvariant() } | Sort-Object -Unique)
+        if ($addresses.Count -eq 0) { throw 'DEVICE_IDENTITY_UNAVAILABLE: SMBIOS UUID and physical network adapter were not found.' }
+        $identity = 'physical-mac:' + $addresses[0]
+    }
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { $bytes = $hash.ComputeHash([Text.Encoding]::UTF8.GetBytes('RoomTN20/device/v1/' + $identity)) } finally { $hash.Dispose() }
+    # RFC 9562 variant, application-specific UUID version 8. Stable even with UWF enabled.
+    $hex = ([BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant().Substring(0, 32)
+    $hex = $hex.Substring(0, 12) + '8' + $hex.Substring(13, 3) + 'a' + $hex.Substring(17)
+    return [Guid]::ParseExact($hex, 'N').ToString()
+}
+
 Set-StrictMode -Version Latest
 
 function ConvertTo-LanPowerManagementKey {
@@ -354,9 +375,9 @@ function Resolve-LanPowerRuntimePayload {
     param([string]$Source, [string]$PayloadRoot, [ValidateSet('runtime','player')][string]$Kind)
     # These pins also let the older, three-script updater install the new signed
     # core without accepting unsigned sidecars or changing its trust key.
-    $fileName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime-1.3.3.dll' } else { 'RoomTN20.Player-1.3.3.exe' }
+    $fileName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime-1.4.0.dll' } else { 'RoomTN20.Player-1.4.0.exe' }
     $installedName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime.dll' } else { 'RoomTN20.Player.exe' }
-    $expectedHash = if ($Kind -eq 'runtime') { '7FCEF51AFA6A682132AA2CCA28839937C672D76EDC2967ED307B7CD9D9C08622' } else { 'FB5594BBE28954C29AED7EB119F86D04934F4189FFB99626B88D3E74CEC5B97E' }
+    $expectedHash = if ($Kind -eq 'runtime') { 'A590E86332A005CD027CC16A082D3DACEB885D53A8E9CEB68E416A452B4047D8' } else { '254EEFC8DAC8E72181328A78E3ECB5472F188536B7B4A335ED10FBC568B97207' }
     if (-not $Source) {
         $sourceTreeFile = Join-Path (Split-Path -Parent $PayloadRoot) ('release\' + $fileName)
         $extractedFile = Join-Path $PayloadRoot $installedName
@@ -503,7 +524,7 @@ function Test-LanPowerHandshakeSignature {
 
 function Wait-LanPowerInstalledAgent {
     param([string]$InstallPath, [string]$RoomKey, [int]$Port = 17840,
-        [string]$ExpectedVersion = '1.3.3', [int]$ExpectedVersionCode = 13,
+        [string]$ExpectedVersion = '1.4.0', [int]$ExpectedVersionCode = 14,
         [switch]$RequireMedia,
         [ValidateRange(1, 60)][int]$TimeoutSeconds = 20, [string]$ManagementKey)
     if ($RoomKey) { $ManagementKey = ConvertTo-LanPowerManagementKey $RoomKey }
@@ -600,7 +621,7 @@ function Invoke-LanPowerInstall {
     $installMutex = Enter-LanPowerInstallLock $InstallPath
     try {
     $configPath = Join-Path $InstallPath 'config.json'
-    $deviceId = [Guid]::NewGuid().ToString()
+    $deviceId = Get-LanPowerHardwareDeviceId
     $previous = $null
     if (Test-Path -LiteralPath $configPath) {
         $previous = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
@@ -608,7 +629,7 @@ function Invoke-LanPowerInstall {
         if (-not [Guid]::TryParse([string]$previous.deviceId, [ref]$parsedId)) {
             throw 'Existing config.json has an invalid deviceId; preserve it and investigate before reinstalling.'
         }
-        $deviceId = $parsedId.ToString()
+        # Retain the room settings; hardware identity replaces a copied device GUID.
     }
     if (-not $PSBoundParameters.ContainsKey('VpnNetworks') -and $previous -and $previous.PSObject.Properties['vpnNetworks']) {
         $VpnNetworks = @($previous.vpnNetworks)
@@ -657,6 +678,7 @@ function Invoke-LanPowerInstall {
     }
     $newConfig = [ordered]@{
         deviceId = $deviceId
+        identityMode = 'hardware-v1'
         managementKey = $ManagementKey
         port = $Port
         vpnNetworks = @($VpnNetworks)
@@ -666,8 +688,8 @@ function Invoke-LanPowerInstall {
         runtimeDataRoot = $mediaDataRoot
         runtimeSetupMessage = $mediaSetupMessage
         runtimePort = 17842
-        version = '1.3.3'
-        versionCode = 13
+        version = '1.4.0'
+        versionCode = 14
         installedAt = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json
     Set-LanPowerAtomicFile $configPath ([Text.Encoding]::ASCII.GetBytes($newConfig))

@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.3.3'
-$AgentVersionCode = 13
+$AgentVersion = '1.4.0'
+$AgentVersionCode = 14
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -20,6 +20,27 @@ $script:DisplayRuntime = $null
 $script:RuntimeStatus = 'not-configured'
 $script:RuntimeMessage = 'Media data on D: has not been prepared. Reinstall the current client with D: available and unprotected.'
 $script:RuntimeLastTry = [DateTime]::MinValue
+
+function Get-LanPowerHardwareDeviceId {
+    # Do not use MachineGuid, the Windows SID or a copied config GUID: ghost copies them.
+    $identity = ''
+    try {
+        $uuid = [string](Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction Stop).UUID
+        $parsed = [Guid]::Empty
+        if ([Guid]::TryParse($uuid, [ref]$parsed) -and $parsed -ne [Guid]::Empty -and $parsed.ToString('N') -ne ('f' * 32)) { $identity = 'smbios:' + $parsed.ToString('N') }
+    } catch { }
+    if (-not $identity) {
+        $addresses = @(Get-CimInstance -ClassName Win32_NetworkAdapter -ErrorAction Stop | Where-Object { $_.PhysicalAdapter -and $_.MACAddress -match '\A(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\z' } | ForEach-Object { ([string]$_.MACAddress).ToUpperInvariant() } | Sort-Object -Unique)
+        if ($addresses.Count -eq 0) { throw 'DEVICE_IDENTITY_UNAVAILABLE: SMBIOS UUID and physical network adapter were not found.' }
+        $identity = 'physical-mac:' + $addresses[0]
+    }
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { $bytes = $hash.ComputeHash([Text.Encoding]::UTF8.GetBytes('RoomTN20/device/v1/' + $identity)) } finally { $hash.Dispose() }
+    # RFC 9562 variant, application-specific UUID version 8. Stable even with UWF enabled.
+    $hex = ([BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant().Substring(0, 32)
+    $hex = $hex.Substring(0, 12) + '8' + $hex.Substring(13, 3) + 'a' + $hex.Substring(17)
+    return [Guid]::ParseExact($hex, 'N').ToString()
+}
 
 function Write-DebugLog {
     param([string]$Message)
@@ -311,6 +332,9 @@ if ($SelfTest) {
 try {
     if (-not (Test-Path -LiteralPath $ConfigPath)) { throw "Missing configuration: $ConfigPath" }
     $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    if ($config.PSObject.Properties['identityMode'] -and $config.identityMode -ceq 'hardware-v1') {
+        $config.deviceId = Get-LanPowerHardwareDeviceId
+    }
     $keyBytes = [Convert]::FromBase64String($config.managementKey)
     if ($keyBytes.Length -ne 32) { throw 'Management Key must contain exactly 32 bytes.' }
     $Port = [int]$config.port
@@ -335,12 +359,14 @@ try {
                         Write-DebugLog 'Discovery signature mismatch'
                         continue
                     }
+                    $hostname = $env:COMPUTERNAME
+                    $mac = Get-PrimaryMacAddress
                     $responseSignature = Get-HmacBase64 $config.managementKey "discovery`n$($message.nonce)`n$($config.deviceId)`n$hostname`n$mac"
                     if (-not $script:DisplayRuntime -and ([DateTime]::UtcNow - $script:RuntimeLastTry).TotalSeconds -ge 30) { Initialize-LanPowerRuntime -Config $config }
                     $uwfState = Get-UwfState
                     $capabilities = Get-UwfCapabilities
                     $display = Get-LanPowerRuntimeSnapshot
-                    if ($display.available) { $capabilities += ',sessionlock,media' }
+                    if ($display.available) { $capabilities += ',sessionlock,media,mediasync' }
                     $stateSignature = Get-HmacBase64 $config.managementKey "state`n$($message.nonce)`n$($config.deviceId)`n$AgentVersion`n$uwfState`n$capabilities"
                     $update = Get-AgentUpdateStatus
                     $updateSignature = Get-HmacBase64 $config.managementKey "update`n$($message.nonce)`n$($config.deviceId)`n$AgentVersionCode`n$($update.latestVersion)`n$($update.status)`n$($update.message)"

@@ -63,10 +63,10 @@ test('real agent ignores malformed, oversized, unsigned and wrongly signed disco
   const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
   assert.equal(reply.type, 'discovery'); assert.equal(reply.requestNonce, nonce); assert.equal(reply.deviceId, agent.deviceId);
   assert.equal(reply.signature, sign(agent.key, `discovery\n${nonce}\n${reply.deviceId}\n${reply.hostname}\n${reply.mac}`));
-  assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media']));
+  assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media', 'mediasync']));
   assert.equal(reply.stateSignature, sign(agent.key, `state\n${nonce}\n${reply.deviceId}\n${reply.agentVersion}\n${reply.uwf}\n${reply.capabilities}`));
   assert.equal(reply.lockSignature, sign(agent.key, `lockstate\n${nonce}\n${reply.deviceId}\n${reply.lockState}\n${reply.mediaVersion}\n${reply.mediaPort}\n${reply.mediaCertSha256}`));
-  assert.equal(reply.clientVersionCode, 13);
+  assert.equal(reply.clientVersionCode, 14);
   assert.equal(reply.runtimeStatus, 'ready');
   assert.equal(reply.runtimeSignature, sign(agent.key, `runtime\n${nonce}\n${reply.deviceId}\n${reply.runtimeStatus}\n${reply.runtimeMessage}`));
   assert.equal(reply.updateSignature, sign(agent.key, `update\n${nonce}\n${reply.deviceId}\n${reply.clientVersionCode}\n${reply.latestVersion}\n${reply.updateStatus}\n${reply.updateMessage}`));

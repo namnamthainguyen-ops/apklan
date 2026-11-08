@@ -17,8 +17,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
-[assembly: System.Reflection.AssemblyVersion("1.3.3.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.3.3.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.0.0")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Runtime")]
@@ -41,6 +41,7 @@ namespace RoomTN20.Runtime
         public string Version { get; internal set; }
         public long TotalBytes { get; internal set; }
         public string PlaylistJson { get; internal set; }
+        public string TransferMode { get; internal set; }
         internal Dictionary<string, object> Playlist;
     }
 
@@ -377,7 +378,13 @@ namespace RoomTN20.Runtime
                         if (drive.AvailableFreeSpace < total + 67108864) throw new InvalidOperationException("MEDIA_DISK_SPACE_LOW");
                         staging = Path.Combine(mediaRoot, ".staging-" + Guid.NewGuid().ToString("N"));
                         Directory.CreateDirectory(staging);
-                        foreach (object item in DataFiles.Items(playlist, "files")) ReceiveFile(stream, staging, (Dictionary<string, object>)item);
+                        HashSet<string> missing = null;
+                        if (upload.TransferMode == "delta-v1") missing = PrepareMediaSync(stream, mediaRoot, staging, playlist, nonce, version);
+                        foreach (object item in DataFiles.Items(playlist, "files"))
+                        {
+                            Dictionary<string, object> metadata = (Dictionary<string, object>)item;
+                            if (missing == null || missing.Contains(DataFiles.Text(metadata, "id"))) ReceiveFile(stream, staging, metadata);
+                        }
                         File.WriteAllBytes(Path.Combine(staging, "playlist.json"), payload);
                         string destination = Path.Combine(mediaRoot, version);
                         if (Directory.Exists(destination))
@@ -433,6 +440,9 @@ namespace RoomTN20.Runtime
             byte[] payload = Convert.FromBase64String(DataFiles.Text(header, "payload"));
             if (payload.Length > 24000) throw new InvalidOperationException("MEDIA_PLAYLIST_TOO_LARGE");
             string canonical = "media\n" + target + "\n" + timestamp.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\n" + nonce + "\n" + version + "\n" + total.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\n" + DataFiles.Hash(payload);
+            string mode = header.ContainsKey("transferMode") ? DataFiles.Text(header, "transferMode") : "";
+            if (mode != "" && mode != "delta-v1") throw new InvalidOperationException("MEDIA_TRANSFER_MODE_UNSUPPORTED");
+            if (mode != "") canonical += "\n" + mode;
             byte[] signingKey = Convert.FromBase64String(keyBase64);
             byte[] expected;
             if (signingKey.Length != 32) throw new InvalidOperationException("MEDIA_KEY_INVALID");
@@ -445,7 +455,59 @@ namespace RoomTN20.Runtime
             string json = new UTF8Encoding(false, true).GetString(payload);
             Dictionary<string, object> playlist = DataFiles.Object(json);
             ValidatePlaylist(playlist, version, total);
-            return new MediaUploadDescriptor { Nonce = nonce, Version = version, TotalBytes = total, PlaylistJson = json, Playlist = playlist };
+            return new MediaUploadDescriptor { Nonce = nonce, Version = version, TotalBytes = total, PlaylistJson = json, Playlist = playlist, TransferMode = mode };
+        }
+        private HashSet<string> PrepareMediaSync(Stream output, string mediaRoot, string staging, Dictionary<string, object> playlist, string nonce, string version)
+        {
+            HashSet<string> missing = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> wanted = new HashSet<string>(StringComparer.Ordinal);
+            string current = DataFiles.CurrentVersion(root);
+            string[] sources = new string[] { current, PreviousVersion(mediaRoot) };
+            foreach (object value in DataFiles.Items(playlist, "files"))
+            {
+                Dictionary<string, object> metadata = (Dictionary<string, object>)value;
+                string id = DataFiles.Text(metadata, "id");
+                wanted.Add(id);
+                string fileName = id + DataFiles.Extension(DataFiles.Text(metadata, "type"));
+                string destination = Path.Combine(staging, fileName);
+                bool reused = false;
+                foreach (string sourceVersion in sources)
+                {
+                    if (!Regex.IsMatch(sourceVersion, @"\A[0-9a-f]{32}\z")) continue;
+                    string directory = Path.Combine(mediaRoot, sourceVersion);
+                    string source = Path.Combine(directory, fileName);
+                    DataFiles.RejectReparse(directory);
+                    DataFiles.RejectReparse(source);
+                    if (!File.Exists(source)) continue;
+                    // Verify the staged copy, not a filename or a stale cache index.
+                    File.Copy(source, destination, false);
+                    using (FileStream file = File.OpenRead(destination))
+                    using (SHA256 hash = SHA256.Create())
+                        reused = file.Length == DataFiles.Number(metadata, "length") && DataFiles.Hex(hash.ComputeHash(file)) == id;
+                    if (reused) break;
+                    File.Delete(destination);
+                }
+                if (!reused) missing.Add(id);
+            }
+            List<object> removed = new List<object>();
+            if (Regex.IsMatch(current, @"\A[0-9a-f]{32}\z"))
+            {
+                string previousPlaylist = Path.Combine(mediaRoot, current, "playlist.json");
+                DataFiles.RejectReparse(previousPlaylist);
+                Dictionary<string, object> previous = DataFiles.Object(File.ReadAllText(previousPlaylist));
+                if (DataFiles.Items(previous, "files").Length > 20) throw new InvalidOperationException("MEDIA_PREVIOUS_PLAYLIST_INVALID");
+                foreach (object value in DataFiles.Items(previous, "files"))
+                {
+                    Dictionary<string, object> metadata = (Dictionary<string, object>)value;
+                    if (!wanted.Contains(DataFiles.Text(metadata, "id"))) removed.Add(new { id = DataFiles.Text(metadata, "id"), name = DataFiles.Text(metadata, "name") });
+                }
+            }
+            byte[] plan = Encoding.UTF8.GetBytes(DataFiles.Json.Serialize(new { missing = new List<string>(missing), removed = removed }));
+            string signature = Sign("media-plan\n" + nonce + "\n" + deviceId + "\n" + version + "\n" + DataFiles.Hash(plan));
+            byte[] line = Encoding.UTF8.GetBytes(DataFiles.Json.Serialize(new { type = "media-plan", nonce = nonce, deviceId = deviceId, version = version, payload = Convert.ToBase64String(plan), signature = signature }) + "\n");
+            output.Write(line, 0, line.Length);
+            output.Flush();
+            return missing;
         }
         private static void ValidatePlaylist(Dictionary<string, object> playlist, string version, long totalBytes)
         {
