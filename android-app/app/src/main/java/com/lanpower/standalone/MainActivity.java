@@ -667,7 +667,7 @@ public final class MainActivity extends Activity {
     }
 
     private void renderMedia(RoomModel room) {
-        content.addView(note("Nội dung chỉ dành cho phòng “" + room.name + "”. Thứ tự từ trên xuống; ảnh mặc định 10 giây, video phát đến hết rồi chuyển mục. Tối đa 20 tệp, 128 MiB mỗi tệp và 256 MiB mỗi phòng."));
+        content.addView(note("Nội dung chỉ dành cho phòng “" + room.name + "”. Thứ tự từ trên xuống; ảnh mặc định 10 giây, video phát đến hết rồi chuyển mục. Tối đa 20 tệp, 128 MiB mỗi tệp và 256 MiB mỗi phòng. Khi gửi lại, chỉ tải tệp còn thiếu hoặc hỏng; tệp đã bỏ sẽ ngừng phát."));
         LinearLayout actions = row();
         Button add = button("+ Chọn ảnh / video", BLUE, R.id.media_add);
         add.setEnabled(!busy && room.playlist.files.size() < RoomPlaylist.MAX_FILES);

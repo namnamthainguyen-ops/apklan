@@ -37,6 +37,7 @@ final class MediaTransfer {
         playlist.validate();
         if (!device.online || !VpnTargets.isPrivateAddress(device.ip)) throw new IOException("Máy đang ngoại tuyến hoặc chưa có địa chỉ LAN/VPN hợp lệ");
         if (!device.supportsMedia()) throw new IOException(device.mediaUnavailableReason());
+        if (!device.supports("mediasync")) throw new IOException("Hãy cập nhật client Windows lên 1.4.0 để đồng bộ tệp quảng cáo còn thiếu");
         if (!playlist.version.matches("[a-f0-9]{32}")) throw new IOException("Phòng chưa có nội dung để gửi");
         JSONArray files = new JSONArray();
         for (MediaItem item : playlist.files) {
@@ -50,7 +51,8 @@ final class MediaTransfer {
         long total = playlist.totalBytes();
         JSONObject header = new JSONObject().put("deviceId", device.id).put("timestamp", timestamp).put("nonce", nonce).put("mediaVersion", playlist.version)
                 .put("totalBytes", total).put("payload", Base64.getEncoder().encodeToString(payload))
-                .put("signature", LanProtocol.hmac(key, LanProtocol.mediaCanonical(device.id, timestamp, nonce, playlist.version, total, RoomPlaylist.sha256(payload))));
+                .put("transferMode", "delta-v1")
+                .put("signature", LanProtocol.hmac(key, LanProtocol.mediaCanonical(device.id, timestamp, nonce, playlist.version, total, RoomPlaylist.sha256(payload)) + "\ndelta-v1"));
         byte[] headerLine = (header + "\n").getBytes(StandardCharsets.UTF_8);
         if (headerLine.length > 32768) throw new IOException("Danh sách nội dung quá dài");
         X509TrustManager pinned = new X509TrustManager() {
@@ -74,14 +76,21 @@ final class MediaTransfer {
             if (closed) throw new IOException("Đã dừng gửi nội dung");
             socket.setEnabledProtocols(new String[]{"TLSv1.2"});
             socket.connect(new InetSocketAddress(device.ip, device.mediaPort), 10000);
-            socket.setSoTimeout(20000);
+            socket.setSoTimeout(120000);
             deadline.schedule(() -> { try { socket.close(); } catch (IOException ignored) { } }, 10, TimeUnit.MINUTES);
             socket.startHandshake();
             OutputStream output = socket.getOutputStream();
             output.write(headerLine);
+            output.flush();
+            JSONObject envelope = new JSONObject(readLine(socket.getInputStream()));
+            MediaSyncPlan plan = MediaSyncPlan.read(envelope, key, device.id, playlist, nonce);
+            java.util.Set<String> missing = plan.missing;
+            total = plan.bytes;
+            progress.sent(0, total);
             long sent = 0;
             long lastProgress = -1;
             for (MediaItem item : playlist.files) {
+                if (!missing.contains(item.id)) continue;
                 MessageDigest hash = MessageDigest.getInstance("SHA-256");
                 long copied = 0;
                 try (InputStream input = new FileInputStream(storage.file(roomId, item))) {
@@ -106,7 +115,10 @@ final class MediaTransfer {
             if (!nonce.equals(response.optString("nonce")) || !device.id.equals(response.optString("deviceId")) || !playlist.version.equals(response.optString("version"))
                     || !LanProtocol.verify(key, LanProtocol.mediaResultCanonical(nonce, device.id, playlist.version, status, message), response.optString("signature"))) throw new IOException("Phản hồi nhận nội dung không được xác thực");
             if (!"accepted".equals(status)) throw new IOException(message);
-            return "Máy đã nhận và lưu nội dung mới của phòng. Quét lại để xác nhận phiên bản đang dùng";
+            return "Đã đồng bộ: dùng lại " + (playlist.files.size() - missing.size()) + ", tải " + missing.size() + ", thêm " + plan.addedIds.size() + ", bỏ " + plan.removedIds.size() + " khỏi danh sách phát."
+                    + (plan.uploadedNames.length() == 0 ? "" : "\nTải: " + plan.uploadedNames + (missing.size() > 3 ? "…" : ""))
+                    + (plan.addedNames.length() == 0 ? "" : "\nThêm: " + plan.addedNames + (plan.addedIds.size() > 3 ? "…" : ""))
+                    + (plan.removedNames.length() == 0 ? "" : "\nBỏ: " + plan.removedNames + (plan.removedIds.size() > 3 ? "…" : ""));
         } finally { active = null; deadline.shutdownNow(); }
     }
 
@@ -115,7 +127,8 @@ final class MediaTransfer {
         for (int value; (value = input.read()) != -1;) {
             if (value == '\n') return bytes.toString(StandardCharsets.UTF_8.name());
             bytes.write(value);
-            if (bytes.size() > 32768) throw new IOException("Phản hồi nội dung vượt giới hạn");
+            // A signed plan can describe 20 added plus 20 removed Unicode names.
+            if (bytes.size() > 65536) throw new IOException("Phản hồi nội dung vượt giới hạn");
         }
         throw new IOException("Mất kết nối trước khi máy xác nhận nội dung");
     }
