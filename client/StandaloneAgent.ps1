@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.4.0'
-$AgentVersionCode = 14
+$AgentVersion = '1.4.1'
+$AgentVersionCode = 15
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -24,18 +24,25 @@ $script:RuntimeLastTry = [DateTime]::MinValue
 function Get-LanPowerHardwareDeviceId {
     # Do not use MachineGuid, the Windows SID or a copied config GUID: ghost copies them.
     $identity = ''
+    $product = $null
     try {
-        $uuid = [string](Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction Stop).UUID
+        $product = Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction Stop
+        $uuid = [string]$product.UUID
         $parsed = [Guid]::Empty
         if ([Guid]::TryParse($uuid, [ref]$parsed) -and $parsed -ne [Guid]::Empty -and $parsed.ToString('N') -ne ('f' * 32)) { $identity = 'smbios:' + $parsed.ToString('N') }
     } catch { }
-    if (-not $identity) {
-        $addresses = @(Get-CimInstance -ClassName Win32_NetworkAdapter -ErrorAction Stop | Where-Object { $_.PhysicalAdapter -and $_.MACAddress -match '\A(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\z' } | ForEach-Object { ([string]$_.MACAddress).ToUpperInvariant() } | Sort-Object -Unique)
-        if ($addresses.Count -eq 0) { throw 'DEVICE_IDENTITY_UNAVAILABLE: SMBIOS UUID and physical network adapter were not found.' }
-        $identity = 'physical-mac:' + $addresses[0]
+    # A firmware UUID can be duplicated. Prefer a usable hardware serial as a second identifier.
+    $serial = if ($null -ne $product -and $product.PSObject.Properties['IdentifyingNumber']) { ([string]$product.IdentifyingNumber).Trim().ToUpperInvariant() } else { '' }
+    if ($serial.Length -ge 4 -and $serial -notmatch '^(?:0+|F+|123456789|DEFAULT STRING|SYSTEM SERIAL NUMBER|TO BE FILLED BY O\.E\.M\.|NONE|UNKNOWN|NOT SPECIFIED|N/A)$') {
+        $identity += '|serial:' + $serial
+    }
+    else {
+        $addresses = @(Get-CimInstance -ClassName Win32_NetworkAdapter -ErrorAction Stop | Where-Object { $_.PhysicalAdapter -and $_.MACAddress -match '\A(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\z' -and $_.MACAddress -notin @('00:00:00:00:00:00','FF:FF:FF:FF:FF:FF') } | ForEach-Object { ([string]$_.MACAddress).ToUpperInvariant() } | Sort-Object -Unique)
+        if ($addresses.Count -eq 0) { throw 'DEVICE_IDENTITY_UNAVAILABLE: No usable hardware serial or physical MAC address.' }
+        $identity += '|physical-mac:' + $addresses[0]
     }
     $hash = [Security.Cryptography.SHA256]::Create()
-    try { $bytes = $hash.ComputeHash([Text.Encoding]::UTF8.GetBytes('RoomTN20/device/v1/' + $identity)) } finally { $hash.Dispose() }
+    try { $bytes = $hash.ComputeHash([Text.Encoding]::UTF8.GetBytes('RoomTN20/device/v2/' + $identity)) } finally { $hash.Dispose() }
     # RFC 9562 variant, application-specific UUID version 8. Stable even with UWF enabled.
     $hex = ([BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant().Substring(0, 32)
     $hex = $hex.Substring(0, 12) + '8' + $hex.Substring(13, 3) + 'a' + $hex.Substring(17)

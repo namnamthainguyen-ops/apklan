@@ -152,7 +152,7 @@ try {
     Invoke-OfflineTestInstall
     $config = Get-Content -LiteralPath (Join-Path $installPath 'config.json') -Raw | ConvertFrom-Json
     Assert-True ($config.managementKey -ceq $key) 'Installer stores the derived room key.'
-    Assert-True ([int]$config.versionCode -eq 14 -and $config.version -eq '1.4.0') 'Installer records the signed-update client version.'
+    Assert-True ([int]$config.versionCode -eq 15 -and $config.version -eq '1.4.1') 'Installer records the signed-update client version.'
     Assert-True ($config.runtimeDataRoot -eq '' -and [int]$config.runtimePort -eq 17842) 'CI media setup is skipped without touching D: or an interactive session.'
     Assert-True ($config.updateTaskName -eq $updateTaskName -and $config.agentTaskName -eq $taskName) 'Installer records both dedicated task names.'
     Assert-True (@($config.vpnNetworks).Count -eq 0) 'Default installation has no implicit remote VPN trust.'

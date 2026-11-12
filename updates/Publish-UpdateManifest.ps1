@@ -2,8 +2,8 @@
 param(
     [Parameter(Mandatory)][string]$PrivateKeyPath,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$SourceCommit,
-    [string]$Version = '1.4.0',
-    [int]$VersionCode = 14,
+    [string]$Version = '1.4.1',
+    [int]$VersionCode = 15,
     [string]$AndroidVersion,
     [int]$AndroidVersionCode,
     [string]$ReleaseNotes = 'Khoa/mo khoa may va anh/video quang cao rieng cho tung phong, luu tren D: khong can mo dong bang C:.'

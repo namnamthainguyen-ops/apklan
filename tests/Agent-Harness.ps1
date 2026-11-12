@@ -50,7 +50,7 @@ if (Test-Path -LiteralPath (Join-Path $TestRoot 'hardware-uuid')) {
 function Get-CimInstance {
     param($ClassName, $ErrorAction)
     if ($ClassName -ne 'Win32_ComputerSystemProduct') { throw 'Unexpected test WMI request' }
-    return [pscustomobject]@{ UUID = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'hardware-uuid')) }
+    return [pscustomobject]@{ UUID = '12345678-1234-4234-9234-123456789012'; IdentifyingNumber = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'hardware-uuid')) }
 }
 '@
     $source = $source.Insert($ast.ParamBlock.Extent.EndOffset, "`n" + $fixture + "`n")

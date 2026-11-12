@@ -57,9 +57,9 @@ async function startAgent(t, options = {}) {
 
 test('ghosted agents keep their room key but advertise distinct stable hardware identities', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
   const common = { roomKey: 'Ghost123', savedDeviceId: crypto.randomUUID() };
-  const a = await startAgent(t, { ...common, hardwareUuid: '12345678-1234-4234-9234-123456789012' });
-  const b = await startAgent(t, { ...common, hardwareUuid: '22345678-1234-4234-9234-123456789012' });
-  const rebooted = await startAgent(t, { ...common, hardwareUuid: '12345678-1234-4234-9234-123456789012' });
+  const a = await startAgent(t, { ...common, hardwareUuid: 'HP-TEST-001' });
+  const b = await startAgent(t, { ...common, hardwareUuid: 'HP-TEST-002' });
+  const rebooted = await startAgent(t, { ...common, hardwareUuid: 'HP-TEST-001' });
   async function discover(agent) {
     const nonce = crypto.randomUUID();
     const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
@@ -85,7 +85,7 @@ test('real agent ignores malformed, oversized, unsigned and wrongly signed disco
   assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media', 'mediasync']));
   assert.equal(reply.stateSignature, sign(agent.key, `state\n${nonce}\n${reply.deviceId}\n${reply.agentVersion}\n${reply.uwf}\n${reply.capabilities}`));
   assert.equal(reply.lockSignature, sign(agent.key, `lockstate\n${nonce}\n${reply.deviceId}\n${reply.lockState}\n${reply.mediaVersion}\n${reply.mediaPort}\n${reply.mediaCertSha256}`));
-  assert.equal(reply.clientVersionCode, 14);
+  assert.equal(reply.clientVersionCode, 15);
   assert.equal(reply.runtimeStatus, 'ready');
   assert.equal(reply.runtimeSignature, sign(agent.key, `runtime\n${nonce}\n${reply.deviceId}\n${reply.runtimeStatus}\n${reply.runtimeMessage}`));
   assert.equal(reply.updateSignature, sign(agent.key, `update\n${nonce}\n${reply.deviceId}\n${reply.clientVersionCode}\n${reply.latestVersion}\n${reply.updateStatus}\n${reply.updateMessage}`));
