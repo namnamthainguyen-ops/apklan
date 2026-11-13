@@ -31,7 +31,7 @@ final class RoomModel {
         for (ManagedDevice device : found) {
             device.online = true;
             device.lastSeen = scanTime;
-            devices.put(device.id, device);
+            devices.put(device.listKey(), device);
         }
         lastScan = scanTime;
         scanError = "";
@@ -45,7 +45,7 @@ final class RoomModel {
 
     List<ManagedDevice> selected(Set<String> ids) {
         List<ManagedDevice> result = new ArrayList<>();
-        for (ManagedDevice device : devices.values()) if (ids.contains(device.id)) result.add(device.copy());
+        for (ManagedDevice device : devices.values()) if (ids.contains(device.listKey())) result.add(device.copy());
         return result;
     }
 }
@@ -81,6 +81,8 @@ final class ManagedDevice {
         this.ip = ip;
         this.mac = mac;
     }
+
+    String listKey() { try { return id + "|" + LanProtocol.normalizeMac(mac); } catch (IllegalArgumentException invalidMac) { return id; } }
 
     boolean supportsUwf() {
         return supports("uwf");

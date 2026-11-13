@@ -104,7 +104,7 @@ final class LanTransport {
                             device.lockAuthenticated = true;
                         }
                     } catch (IllegalArgumentException invalidLockState) { }
-                    found.put(id, device);
+                    found.put(device.listKey(), device);
                     try {
                         String runtimeStatus = response.optString("runtimeStatus");
                         String runtimeMessage = response.optString("runtimeMessage");

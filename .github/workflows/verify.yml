@@ -114,10 +114,10 @@ jobs:
         run: gradle --no-daemon testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease
       - name: Verify published release signature and reject debug builds
         run: |
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs release/RoomTN20-1.4.0.apk | tee published-apk-signature.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs release/RoomTN20-1.4.1.apk | tee published-apk-signature.txt
           grep -q '253e62e567d191b4481aaae2cd087610e1ca730b76e5cf19ec4e97165fa22b5a' published-apk-signature.txt
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging release/RoomTN20-1.4.0.apk > published-apk-badging.txt
-          grep -q "versionCode='11' versionName='1.4.0'" published-apk-badging.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging release/RoomTN20-1.4.1.apk > published-apk-badging.txt
+          grep -q "versionCode='12' versionName='1.4.1'" published-apk-badging.txt
           if grep -q 'application-debuggable' published-apk-badging.txt; then exit 1; fi
       - name: APK checksum
         run: sha256sum android-app/app/build/outputs/apk/debug/app-debug.apk | tee apk-sha256.txt

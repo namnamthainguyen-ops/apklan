@@ -87,7 +87,7 @@ final class RoomRepository {
             device.stateAuthenticated = value.optBoolean("stateAuthenticated", false);
             device.lastSeen = value.optLong("lastSeen");
             device.online = false; // Saved presence never proves that a PC is still reachable.
-            room.devices.put(device.id, device);
+            room.devices.put(device.listKey(), device);
         }
     }
 }

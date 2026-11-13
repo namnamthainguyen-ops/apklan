@@ -371,10 +371,10 @@ public final class MainActivity extends Activity {
         CheckBox check = new CheckBox(this);
         check.setId(R.id.device_select);
         check.setContentDescription("Chọn " + device.hostname);
-        check.setChecked(selected.contains(device.id));
+        check.setChecked(selected.contains(device.listKey()));
         check.setEnabled(!busy);
         check.setOnCheckedChangeListener((view, checked) -> {
-            if (checked) selected.add(device.id); else selected.remove(device.id);
+            if (checked) selected.add(device.listKey()); else selected.remove(device.listKey());
             updateSelection();
         });
         heading.addView(check);
@@ -387,7 +387,7 @@ public final class MainActivity extends Activity {
                 + "\nMàn hình: " + device.lockDescription() + "\nQuảng cáo: " + mediaStatus(room, device), 13, Color.DKGRAY), matchWrap());
         card.addView(text("Chạm để xem chi tiết và thao tác", 12, BLUE), matchWrap());
         View.OnClickListener open = view -> {
-            if (!busy) { deviceId = device.id; render(); }
+            if (!busy) { deviceId = device.listKey(); render(); }
         };
         card.setOnClickListener(open);
         name.setOnClickListener(open);
@@ -499,7 +499,7 @@ public final class MainActivity extends Activity {
                             result = localResult;
                         }
                     } else result = transport.command(key, device, action);
-                    if (lockAction) waitingLock.put(device.id, device);
+                    if (lockAction) waitingLock.put(device.listKey(), device);
                     else { successes++; results.add(device.hostname + ": OK — " + result); }
                 } catch (Exception error) {
                     results.add(device.hostname + ": LỖI — " + (lockAction ? roomFeatureError(error) : readable(error)));
@@ -509,10 +509,10 @@ public final class MainActivity extends Activity {
                 try {
                     List<ManagedDevice> confirmed = transport.discover(key, confirmationTargets);
                     Map<String, ManagedDevice> byId = new LinkedHashMap<>();
-                    for (ManagedDevice value : confirmed) byId.put(value.id, value);
+                    for (ManagedDevice value : confirmed) byId.put(value.listKey(), value);
                     String expected = "lock".equals(action) ? "locked" : "unlocked";
                     for (ManagedDevice requested : waitingLock.values()) {
-                        ManagedDevice actual = byId.get(requested.id);
+                        ManagedDevice actual = byId.get(requested.listKey());
                         if (actual != null && actual.lockAuthenticated && expected.equals(actual.lockState)) {
                             successes++;
                             results.add(requested.hostname + ": OK — " + actual.lockDescription());
@@ -799,11 +799,11 @@ public final class MainActivity extends Activity {
             List<String> results = new ArrayList<>();
             int successes = 0;
             final Map<String, ManagedDevice> fresh = new LinkedHashMap<>();
-            try { for (ManagedDevice device : transport.discover(key, discoveryTargets)) fresh.put(device.id, device); }
+            try { for (ManagedDevice device : transport.discover(key, discoveryTargets)) fresh.put(device.listKey(), device); }
             catch (Exception error) { postResult(() -> setBusy(false, "Chưa gửi: không kiểm tra được máy trong phòng. " + readable(error))); return; }
             for (int i = 0; i < targets.size(); i++) {
                 ManagedDevice saved = targets.get(i);
-                ManagedDevice target = fresh.get(saved.id);
+                ManagedDevice target = fresh.get(saved.listKey());
                 if (destroyed) return;
                 if (target == null || !target.online) { results.add(saved.hostname + ": CHỜ GỬI — Máy offline/chưa phản hồi; chọn gửi lại khi online"); continue; }
                 final int position = i + 1;

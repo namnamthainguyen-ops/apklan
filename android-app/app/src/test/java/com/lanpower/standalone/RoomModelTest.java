@@ -21,10 +21,20 @@ public final class RoomModelTest {
         room.applyScan(Collections.singletonList(updated), 2000);
         assertEquals(2, room.devices.size());
         assertEquals(1, room.onlineCount());
-        assertEquals("192.168.1.30", room.devices.get("one").ip);
-        assertEquals(2000, room.devices.get("one").lastSeen);
-        assertFalse(room.devices.get("two").online);
-        assertEquals(1000, room.devices.get("two").lastSeen);
+        assertEquals("192.168.1.30", room.devices.get(device("one").listKey()).ip);
+        assertEquals(2000, room.devices.get(device("one").listKey()).lastSeen);
+        assertFalse(room.devices.get(device("two").listKey()).online);
+        assertEquals(1000, room.devices.get(device("two").listKey()).lastSeen);
+    }
+
+    @Test public void clonedIdsWithDistinctMacsRemainSeparatelySelectable() {
+        RoomModel room = new RoomModel("room", "A", false, "key");
+        ManagedDevice first = device("clone");
+        ManagedDevice second = new ManagedDevice(first.id, "PC-02", "192.168.1.21", "00:11:22:AA:BB:DD");
+        room.applyScan(Arrays.asList(first, second), 1000);
+        assertEquals(2, room.onlineCount());
+        assertEquals(second.ip, room.selected(Collections.singleton(second.listKey())).get(0).ip);
+        assertEquals(first.id, second.id);
     }
 
     @Test public void zeroReplyScanMarksSavedDevicesOfflineWithoutDeletingThem() {
@@ -44,17 +54,17 @@ public final class RoomModelTest {
         first.applyScan(Collections.emptyList(), 2000);
         assertEquals(0, first.onlineCount());
         assertEquals(1, second.onlineCount());
-        assertFalse(second.devices.containsKey("one"));
+        assertFalse(second.devices.containsKey(device("one").listKey()));
     }
 
     @Test public void selectionUsesOnlyThisRoomsIdsAndCopiesSnapshots() {
         RoomModel room = new RoomModel("room", "A", false, "key");
         room.applyScan(Arrays.asList(device("one"), device("two")), 1000);
-        List<ManagedDevice> selected = room.selected(new LinkedHashSet<>(Arrays.asList("one", "other-room-id")));
+        List<ManagedDevice> selected = room.selected(new LinkedHashSet<>(Arrays.asList(device("one").listKey(), "other-room-id")));
         assertEquals(1, selected.size());
         room.applyScan(Collections.emptyList(), 2000);
         assertTrue(selected.get(0).online);
-        assertFalse(room.devices.get("one").online);
+        assertFalse(room.devices.get(device("one").listKey()).online);
     }
 
     @Test public void unsignedOrSubstringCapabilitiesNeverEnableUwf() {
