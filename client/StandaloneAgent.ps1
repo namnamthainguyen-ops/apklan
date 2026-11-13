@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.4.1'
-$AgentVersionCode = 15
+$AgentVersion = '1.4.2'
+$AgentVersionCode = 16
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -373,7 +373,7 @@ try {
                     $uwfState = Get-UwfState
                     $capabilities = Get-UwfCapabilities
                     $display = Get-LanPowerRuntimeSnapshot
-                    if ($display.available) { $capabilities += ',sessionlock,media,mediasync' }
+                    if ($display.available) { $capabilities += ',sessionlock,media,mediasync,desktopactions' }
                     $stateSignature = Get-HmacBase64 $config.managementKey "state`n$($message.nonce)`n$($config.deviceId)`n$AgentVersion`n$uwfState`n$capabilities"
                     $update = Get-AgentUpdateStatus
                     $updateSignature = Get-HmacBase64 $config.managementKey "update`n$($message.nonce)`n$($config.deviceId)`n$AgentVersionCode`n$($update.latestVersion)`n$($update.status)`n$($update.message)"
@@ -424,10 +424,28 @@ try {
                     if (-not $message.PSObject.Properties['targetMac'] -or [string]$message.targetMac -cnotmatch '\A(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\z') { continue }
                     $canonical += "`n$($message.targetMac)"
                 }
+                $desktopValue = ''
+                if ($message.action -in @('open-web', 'close-apps')) {
+                    if (-not $message.PSObject.Properties['desktopValue'] -or -not $message.PSObject.Properties['targetMac']) { continue }
+                    $desktopValue = [string]$message.desktopValue
+                    if ($desktopValue.Length -gt 1024 -or $desktopValue -match '[\x00-\x20\x7f]' -or $message.targetMac -cne (Get-PrimaryMacAddress)) { continue }
+                    if ($message.action -eq 'close-apps' -and $desktopValue) { continue }
+                    $canonical += "`n$($message.targetMac)`n$desktopValue"
+                }
                 $expected = Get-HmacBase64 $config.managementKey $canonical
                 if (-not (Test-FixedTimeEqual $message.signature $expected)) { continue }
                 $usedNonces[[string]$message.nonce] = $now
 
+                if ($message.action -in @('open-web', 'close-apps')) {
+                    try {
+                        if (-not $script:DisplayRuntime) { throw 'Desktop player is not available.' }
+                        $result = $script:DisplayRuntime.RunDesktopAction([string]$message.action, $desktopValue)
+                        Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'accepted' -Message $result
+                    } catch {
+                        Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'rejected' -Message 'Desktop unavailable, locked, busy or action could not be confirmed.'
+                    }
+                    continue
+                }
                 if ($message.action -notin @('shutdown', 'restart', 'freeze', 'unfreeze', 'wake', 'lock', 'unlock')) {
                     Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'rejected' -Message 'Unsupported action.'
                     continue

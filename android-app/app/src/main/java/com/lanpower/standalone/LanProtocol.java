@@ -58,7 +58,7 @@ final class LanProtocol {
         requireField(requestId);
         requireField(deviceId);
         requireField(nonce);
-        if (!"shutdown".equals(action) && !"restart".equals(action) && !"freeze".equals(action) && !"unfreeze".equals(action) && !"lock".equals(action) && !"unlock".equals(action)) {
+        if (!"shutdown".equals(action) && !"restart".equals(action) && !"freeze".equals(action) && !"unfreeze".equals(action) && !"lock".equals(action) && !"unlock".equals(action) && !"open-web".equals(action) && !"close-apps".equals(action)) {
             throw new IllegalArgumentException("Unsupported action");
         }
         return "command\n" + requestId + "\n" + deviceId + "\n" + action + "\n" + timestamp + "\n" + nonce;

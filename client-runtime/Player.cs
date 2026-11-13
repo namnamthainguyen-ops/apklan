@@ -18,8 +18,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Screen = System.Windows.Forms.Screen;
 
-[assembly: System.Reflection.AssemblyVersion("1.4.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.2.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.2.0")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Display")]
@@ -122,6 +122,20 @@ namespace RoomTN20.Runtime
                             while (!disposed && pipe.IsConnected)
                             {
                                 Dictionary<string, object> state = DataFiles.Object(ReadLine(pipe, 4096));
+                                if (DataFiles.Text(state, "type") == "desktop")
+                                {
+                                    string result = "";
+                                    bool accepted = false;
+                                    app.Dispatcher.Invoke(new Action(delegate
+                                    {
+                                        if (locked || !IsInteractiveDesktopActive()) return;
+                                        try { result = DesktopAction(DataFiles.Text(state, "action"), DataFiles.Text(state, "url")); accepted = true; }
+                                        catch { }
+                                    }));
+                                    writer.WriteLine(DataFiles.Json.Serialize(new { desktopRequest = DataFiles.Text(state, "request"), status = accepted ? "accepted" : "rejected", result = result }));
+                                    writer.Flush();
+                                    continue;
+                                }
                                 if (DataFiles.Text(state, "type") != "state") continue;
                                 string generation = DataFiles.Text(state, "generation");
                                 string version = DataFiles.Text(state, "mediaVersion");
@@ -150,6 +164,36 @@ namespace RoomTN20.Runtime
                 finally { currentPipe = null; }
                 if (!disposed) Thread.Sleep(2000);
             }
+        }
+        private static string DesktopAction(string action, string url)
+        {
+            if (action == "open-web")
+            {
+                Uri uri;
+                if (!Uri.TryCreate(url, UriKind.Absolute, out uri) || (uri.Scheme != "http" && uri.Scheme != "https") ||
+                    String.IsNullOrEmpty(uri.Host) || !String.IsNullOrEmpty(uri.UserInfo))
+                    throw new InvalidOperationException("INVALID_WEB_URL");
+                var start = new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true };
+                using (var browser = System.Diagnostics.Process.Start(start)) { }
+                return "Browser launch requested.";
+            }
+            if (action != "close-apps") throw new InvalidOperationException("INVALID_DESKTOP_ACTION");
+            int sent = 0, failed = 0;
+            using (var self = System.Diagnostics.Process.GetCurrentProcess())
+            {
+                foreach (var process in System.Diagnostics.Process.GetProcesses())
+                using (process)
+                {
+                    try
+                    {
+                        if (process.Id == self.Id || process.SessionId != self.SessionId ||
+                            process.ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase) || process.MainWindowHandle == IntPtr.Zero) continue;
+                        if (process.CloseMainWindow()) sent++; else failed++;
+                    }
+                    catch { failed++; }
+                }
+            }
+            return "Close requests: " + sent + "; unavailable: " + failed + ". Apps may prompt to save.";
         }
         private void Apply(bool desired, string version)
         {

@@ -7,7 +7,7 @@ New-Item -ItemType Directory -Path $testRoot | Out-Null
 try {
     $cert = Join-Path $testRoot 'fixture.pfx'
     Initialize-LanPowerMediaCertificate -Path $cert -DeviceId ([Guid]::NewGuid().ToString())
-    $runtime = Join-Path $repoRoot 'release\RoomTN20.Runtime-1.4.0.dll'
+    $runtime = Join-Path $repoRoot 'release\RoomTN20.Runtime-1.4.2.dll'
     Copy-Item -LiteralPath $runtime -Destination $testRoot
     $compiler = Join-Path ([Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) 'csc.exe'
     $exe = Join-Path $testRoot 'Media-Transfer-Smoke.exe'
@@ -29,7 +29,7 @@ try {
     $probe.Dispose()
     $fixtureKey = [Convert]::ToBase64String((New-Object byte[] 32))
     $config = @{ deviceId = [Guid]::NewGuid().ToString(); managementKey = $fixtureKey; port = $udpPort;
-        runtimeDataRoot = $dataRoot; runtimePort = 17842; version = '1.4.1'; versionCode = 15 } | ConvertTo-Json
+        runtimeDataRoot = $dataRoot; runtimePort = 17842; version = '1.4.2'; versionCode = 16 } | ConvertTo-Json
     Set-LanPowerAtomicFile (Join-Path $agentRoot 'config.json') ([Text.Encoding]::ASCII.GetBytes($config))
     Set-LanPowerDirectorySecurity $agentRoot
     $taskName = 'RoomTN20MediaSmoke-' + [Guid]::NewGuid().ToString('N')
@@ -39,7 +39,7 @@ try {
         $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
         Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Force | Out-Null
         Start-ScheduledTask -TaskName $taskName
-        [void](Wait-LanPowerInstalledAgent -InstallPath $agentRoot -ManagementKey $fixtureKey -Port $udpPort -RequireMedia -ExpectedVersion '1.4.1' -ExpectedVersionCode 15)
+        [void](Wait-LanPowerInstalledAgent -InstallPath $agentRoot -ManagementKey $fixtureKey -Port $udpPort -RequireMedia -ExpectedVersion '1.4.2' -ExpectedVersionCode 16)
         $agentProcess = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like ('*' + (Join-Path $agentRoot 'StandaloneAgent.ps1') + '*') } | Select-Object -First 1
         if (-not $agentProcess) { throw 'SYSTEM agent process was not found.' }
         $probeExe = Join-Path $testRoot 'Pipe-Access-Test.exe'

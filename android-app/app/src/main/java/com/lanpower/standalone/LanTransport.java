@@ -39,6 +39,10 @@ final class LanTransport {
     }
 
     List<ManagedDevice> discover(String key, List<String> unicastTargets) throws Exception {
+        return discover(key, unicastTargets, device -> { });
+    }
+
+    List<ManagedDevice> discover(String key, List<String> unicastTargets, java.util.function.Consumer<ManagedDevice> onFound) throws Exception {
         String nonce = UUID.randomUUID().toString().replace("-", "");
         JSONObject request = new JSONObject().put("type", "discover").put("nonce", nonce)
                 .put("signature", LanProtocol.hmac(key, "discover\n" + nonce));
@@ -47,12 +51,26 @@ final class LanTransport {
         try (DatagramSocket socket = openSocket()) {
             socket.setBroadcast(true);
             socket.setReceiveBufferSize(1024 * 1024);
-            Set<InetAddress> destinations = addresses();
-            for (String target : unicastTargets) if (VpnTargets.isPrivateAddress(target)) destinations.add(InetAddress.getByName(target));
-            sendToAddresses(socket, bytes, PORT, destinations);
+            Set<InetAddress> broadcast = addresses();
+            java.util.Iterator<String> pending = unicastTargets.iterator();
+            boolean sent = false;
+            try { sendToAddresses(socket, bytes, PORT, broadcast); sent = true; }
+            catch (IOException unavailable) { if (!pending.hasNext() || closed) throw unavailable; }
             long deadline = System.nanoTime() + 2_600_000_000L;
             while (System.nanoTime() < deadline && !closed) {
-                socket.setSoTimeout((int) Math.max(1, Math.min(350, (deadline - System.nanoTime()) / 1_000_000L)));
+                if (pending.hasNext()) {
+                    Set<InetAddress> batch = new LinkedHashSet<>();
+                    for (int i = 0; i < 32 && pending.hasNext(); i++) {
+                        String target = pending.next();
+                        if (VpnTargets.isPrivateAddress(target)) batch.add(InetAddress.getByName(target));
+                    }
+                    if (!batch.isEmpty()) {
+                        try { sendToAddresses(socket, bytes, PORT, batch); sent = true; }
+                        catch (IOException unreachable) { if (closed) throw unreachable; }
+                    }
+                }
+                if (!pending.hasNext() && !sent) throw new IOException("Không gửi được gói dò LAN/VPN");
+                socket.setSoTimeout((int) Math.max(1, Math.min(pending.hasNext() ? 20 : 350, (deadline - System.nanoTime()) / 1_000_000L)));
                 try {
                     DatagramPacket packet = new DatagramPacket(new byte[8193], 8193);
                     socket.receive(packet);
@@ -104,7 +122,7 @@ final class LanTransport {
                             device.lockAuthenticated = true;
                         }
                     } catch (IllegalArgumentException invalidLockState) { }
-                    found.put(device.listKey(), device);
+
                     try {
                         String runtimeStatus = response.optString("runtimeStatus");
                         String runtimeMessage = response.optString("runtimeMessage");
@@ -114,6 +132,7 @@ final class LanTransport {
                             device.runtimeMessage = runtimeMessage;
                         }
                     } catch (IllegalArgumentException invalidRuntime) { }
+                    if (found.put(device.listKey(), device) == null) onFound.accept(device);
                 } catch (SocketTimeoutException ignored) { }
                 catch (JSONException | IllegalArgumentException malformed) {
                     // Keep listening for other machines after invalid datagrams.
@@ -140,21 +159,31 @@ final class LanTransport {
         return command(key, relay, "wake", LanProtocol.normalizeMac(target.mac));
     }
 
+    String desktop(String key, ManagedDevice device, String action, String value) throws Exception {
+        return command(key, device, action, LanProtocol.normalizeMac(device.mac), value);
+    }
+
     private String command(String key, ManagedDevice device, String action, String targetMac) throws Exception {
+        return command(key, device, action, targetMac, null);
+    }
+
+    private String command(String key, ManagedDevice device, String action, String targetMac, String desktopValue) throws Exception {
         String requestId = UUID.randomUUID().toString();
         String nonce = UUID.randomUUID().toString().replace("-", "");
         long timestamp = Instant.now().getEpochSecond();
         String canonical = "wake".equals(action) ? LanProtocol.wakeCanonical(requestId, device.id, timestamp, nonce, targetMac)
                 : LanProtocol.commandCanonical(requestId, device.id, action, timestamp, nonce);
+        if (desktopValue != null) canonical += "\n" + targetMac + "\n" + desktopValue;
         JSONObject request = new JSONObject().put("type", "command").put("requestId", requestId).put("deviceId", device.id)
                 .put("action", action).put("timestamp", timestamp).put("nonce", nonce)
                 .put("signature", LanProtocol.hmac(key, canonical));
         if (targetMac != null) request.put("targetMac", targetMac);
+        if (desktopValue != null) request.put("desktopValue", desktopValue);
         byte[] bytes = request.toString().getBytes(StandardCharsets.UTF_8);
         try (DatagramSocket socket = openSocket()) {
             socket.connect(InetAddress.getByName(device.ip), PORT);
             socket.send(new DatagramPacket(bytes, bytes.length, socket.getInetAddress(), PORT));
-            long timeout = ("freeze".equals(action) || "unfreeze".equals(action)) ? 30_000_000_000L
+            long timeout = desktopValue != null ? 12_000_000_000L : ("freeze".equals(action) || "unfreeze".equals(action)) ? 30_000_000_000L
                     : ("lock".equals(action) || "unlock".equals(action)) ? 15_000_000_000L : 3_500_000_000L;
             long deadline = System.nanoTime() + timeout;
             while (System.nanoTime() < deadline && !closed) {

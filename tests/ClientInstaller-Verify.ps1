@@ -13,7 +13,7 @@ foreach ($payload in @('StandaloneAgent.ps1', 'Install-Core.ps1', 'Update-Agent.
     $hash = [Security.Cryptography.SHA256]::Create()
     try { $embedded = [BitConverter]::ToString($hash.ComputeHash($stream)).Replace('-', '') }
     finally { $hash.Dispose(); $stream.Dispose() }
-    $sourcePath = if ($payload -eq 'RoomTN20.Runtime.dll') { 'release\RoomTN20.Runtime-1.4.0.dll' } elseif ($payload -eq 'RoomTN20.Player.exe') { 'release\RoomTN20.Player-1.4.0.exe' } else { "client\$payload" }
+    $sourcePath = if ($payload -eq 'RoomTN20.Runtime.dll') { 'release\RoomTN20.Runtime-1.4.2.dll' } elseif ($payload -eq 'RoomTN20.Player.exe') { 'release\RoomTN20.Player-1.4.2.exe' } else { "client\$payload" }
     $source = (Get-FileHash -LiteralPath (Join-Path $repoRoot $sourcePath) -Algorithm SHA256).Hash
     if ($embedded -cne $source) { throw "Embedded $payload differs from the checked-in source." }
     Write-Output "EMBEDDED_PAYLOAD=PASS $payload $embedded"

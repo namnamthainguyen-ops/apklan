@@ -7,8 +7,8 @@ New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $compiler = Join-Path ([Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) 'csc.exe'
 if (-not (Test-Path -LiteralPath $compiler)) { throw 'Build with Windows PowerShell 5.1 / .NET Framework compiler.' }
 $shared = Join-Path $PSScriptRoot 'Shared.cs'
-$runtime = Join-Path $OutputDirectory 'RoomTN20.Runtime-1.4.0.dll'
-$player = Join-Path $OutputDirectory 'RoomTN20.Player-1.4.0.exe'
+$runtime = Join-Path $OutputDirectory 'RoomTN20.Runtime-1.4.2.dll'
+$player = Join-Path $OutputDirectory 'RoomTN20.Player-1.4.2.exe'
 $references = @('/reference:System.dll', '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', '/reference:System.Security.dll')
 & $compiler /nologo /target:library /platform:anycpu /optimize+ /langversion:5 /codepage:65001 ("/out:$runtime") @references $shared (Join-Path $PSScriptRoot 'Controller.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Runtime compilation failed.' }

@@ -412,9 +412,8 @@ public final class MainActivity extends Activity {
         int[] ids = {R.id.action_wake, R.id.action_shutdown, R.id.action_restart, R.id.action_freeze, R.id.action_unfreeze, R.id.action_lock, R.id.action_unlock};
         int[] colors = {GREEN, RED, AMBER, BLUE, NAVY, RED, GREEN};
         LinearLayout first = row();
-        LinearLayout second = row();
-        LinearLayout third = row();
-        for (int i = 0; i < actions.length; i++) {
+
+        for (int i = 0; i < 3; i++) {
             String action = actions[i];
             Button button = button(actionLabel(action), colors[i], ids[i]);
             button.setEnabled(!busy && (oneDevice == null ? !selected.isEmpty() : "wake".equals(action) || (oneDevice.online && room.scanError.isEmpty())));
@@ -423,11 +422,69 @@ public final class MainActivity extends Activity {
                 confirmAction(room, targets, action);
             });
             if (oneDevice == null) selectionButtons.add(button);
-            (i < 3 ? first : i < 5 ? second : third).addView(button, weighted());
+            first.addView(button, weighted());
         }
         parent.addView(first, matchWrap());
-        parent.addView(second, matchWrap());
-        parent.addView(third, matchWrap());
+        Button more = button("Thao tác khác", NAVY, View.NO_ID);
+        more.setEnabled(!busy && (oneDevice != null || !selected.isEmpty()));
+        if (oneDevice == null) selectionButtons.add(more);
+        more.setOnClickListener(view -> {
+            List<ManagedDevice> targets = oneDevice == null ? room.selected(selected) : Collections.singletonList(oneDevice.copy());
+            String[] labels = {"Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình", "Mở website", "Đóng ứng dụng đang mở"};
+            showPrompt(new AlertDialog.Builder(this).setTitle("Thao tác khác").setItems(labels, (dialog, index) -> {
+                if (index < 4) confirmAction(room, targets, actions[index + 3]);
+                else desktopPrompt(room, targets, index == 4);
+            }).create());
+        });
+        parent.addView(more, matchWrap());
+    }
+
+    private void desktopPrompt(RoomModel room, List<ManagedDevice> targets, boolean openWeb) {
+        EditText url = new EditText(this);
+        url.setSingleLine();
+        url.setHint("https://example.com");
+        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
+                .setTitle((openWeb ? "Mở website" : "Đóng ứng dụng") + " • " + targets.size() + " máy")
+                .setNegativeButton("Hủy", null).setPositiveButton("Thực hiện", null);
+        if (openWeb) builder.setView(url);
+        else builder.setMessage("Gửi yêu cầu đóng các cửa sổ ứng dụng. Windows có thể hỏi lưu dữ liệu.");
+        AlertDialog dialog = builder.create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            String value = openWeb ? url.getText().toString().trim() : "";
+            if (openWeb) {
+                try {
+                    java.net.URI parsed = new java.net.URI(value);
+                    if (value.length() > 1024 || parsed.getHost() == null || parsed.getRawUserInfo() != null ||
+                            (!"https".equalsIgnoreCase(parsed.getScheme()) && !"http".equalsIgnoreCase(parsed.getScheme())))
+                        throw new IllegalArgumentException();
+                } catch (Exception invalid) {
+                    url.setError("Nhập địa chỉ HTTP hoặc HTTPS hợp lệ");
+                    return;
+                }
+            }
+            dialog.dismiss();
+            setBusy(true, "Đang gửi yêu cầu…");
+            executor.execute(() -> {
+                List<String> results = new ArrayList<>();
+                for (ManagedDevice target : targets) {
+                    String result;
+                    if (!target.online || !room.scanError.isEmpty()) result = "Chưa xác nhận online";
+                    else if (!target.supports("desktopactions")) result = "Cần cập nhật client Windows và quét lại";
+                    else {
+                        try { result = transport.desktop(room.key, target, openWeb ? "open-web" : "close-apps", value); }
+                        catch (Exception error) { result = readable(error); }
+                    }
+                    results.add(target.hostname + " • " + result);
+                }
+                postResult(() -> {
+                    setBusy(false, "Đã gửi yêu cầu");
+                    showPrompt(new AlertDialog.Builder(this).setTitle("Kết quả từng máy")
+                            .setMessage(String.join("\n", results)).setPositiveButton("Đóng", null).create());
+                });
+            });
+        }));
+        showPrompt(dialog);
     }
 
     private void updateSelection() {
@@ -606,11 +663,17 @@ public final class MainActivity extends Activity {
         catch (RuntimeException error) { openPrompts--; throw error; }
     }
 
+    private final Set<String> scanningRooms = new LinkedHashSet<>();
+
     private void refresh() {
         if (busy || destroyed || rooms.isEmpty()) return;
         List<RoomModel> targets = new ArrayList<>();
         RoomModel current = rooms.get(roomId);
         if (current == null) targets.addAll(rooms.values()); else targets.add(current);
+        for (RoomModel room : targets) {
+            scanningRooms.add(room.id);
+            for (ManagedDevice device : room.devices.values()) device.online = false;
+        }
         setBusy(true, "Đang quét " + targets.size() + " phòng…");
         executor.execute(() -> {
             Map<String, List<ManagedDevice>> found = new LinkedHashMap<>();
@@ -623,7 +686,17 @@ public final class MainActivity extends Activity {
                     if (destroyed) return;
                     try {
                         if (room.key.isEmpty()) throw new IllegalStateException("Không đọc được khóa mã hóa của phòng");
-                        found.put(room.id, transport.discover(room.key, scanTargets(room)));
+                        found.put(room.id, transport.discover(room.key, scanTargets(room), device -> postResult(() -> {
+                            device.lastSeen = System.currentTimeMillis();
+                            room.devices.put(device.listKey(), device.copy());
+                            render();
+                        })));
+                        List<ManagedDevice> completed = found.get(room.id);
+                        postResult(() -> {
+                            scanningRooms.remove(room.id);
+                            room.applyScan(completed, System.currentTimeMillis());
+                            render();
+                        });
                     } catch (Exception error) { failures.put(room.id, readable(error)); }
                 }
             } catch (Exception error) {
@@ -632,6 +705,7 @@ public final class MainActivity extends Activity {
             postResult(() -> {
                 long now = System.currentTimeMillis();
                 for (RoomModel room : targets) {
+                    scanningRooms.remove(room.id);
                     if (found.containsKey(room.id)) room.applyScan(found.get(room.id), now);
                     else room.scanError = failures.getOrDefault(room.id, "Quét chưa hoàn tất");
                 }
@@ -653,8 +727,9 @@ public final class MainActivity extends Activity {
     }
 
     private static List<String> scanTargets(RoomModel room) {
-        Set<String> unicast = new LinkedHashSet<>(VpnTargets.expand(room.networkTargets));
+        Set<String> unicast = new LinkedHashSet<>();
         for (ManagedDevice saved : room.devices.values()) if (VpnTargets.isPrivateAddress(saved.ip)) unicast.add(saved.ip);
+        unicast.addAll(VpnTargets.expand(room.networkTargets));
         if (unicast.size() > 1024) throw new IllegalArgumentException("Đích VPN và IP đã lưu vượt 1024 địa chỉ/phòng. Thu hẹp CIDR trong Mạng LAN/VPN");
         return new ArrayList<>(unicast);
     }
@@ -936,6 +1011,7 @@ public final class MainActivity extends Activity {
     }
 
     private String presence(RoomModel room, ManagedDevice device) {
+        if (scanningRooms.contains(room.id)) return device.online ? "Online" : "Đang kiểm tra";
         return !room.scanError.isEmpty() ? "Chưa xác định" : device.online ? "Online" : "Offline / chưa phản hồi";
     }
 

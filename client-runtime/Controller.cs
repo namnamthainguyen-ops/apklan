@@ -17,8 +17,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
-[assembly: System.Reflection.AssemblyVersion("1.4.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.2.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.2.0")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Runtime")]
@@ -247,6 +247,41 @@ namespace RoomTN20.Runtime
                 CloseHandle(token);
             }
         }
+        public string RunDesktopAction(string action, string url)
+        {
+            PlayerConnection target;
+            string request = Guid.NewGuid().ToString("N");
+            lock (gate)
+            {
+                uint session = WTSGetActiveConsoleSessionId();
+                target = players.Find(delegate(PlayerConnection p) { return p.SessionId == session && !p.Unavailable && !p.ReportedLocked; });
+                if (desiredLocked || target == null) throw new InvalidOperationException("DESKTOP_NOT_AVAILABLE");
+                if (Interlocked.CompareExchange(ref target.WriterBusy, 1, 0) != 0) throw new InvalidOperationException("DESKTOP_BUSY");
+            }
+            try
+            {
+                string line = DataFiles.Json.Serialize(new { type = "desktop", request = request, action = action, url = url });
+                if (!target.Writer.WriteLineAsync(line).Wait(2000) || !target.Writer.FlushAsync().Wait(2000))
+                {
+                    target.Pipe.Dispose();
+                    throw new IOException("DESKTOP_SEND_TIMEOUT");
+                }
+            }
+            finally { Interlocked.Exchange(ref target.WriterBusy, 0); }
+            for (int attempt = 0; attempt < 40; attempt++)
+            {
+                lock (gate)
+                {
+                    if (target.DesktopRequest == request)
+                    {
+                        if (!target.DesktopAccepted) throw new InvalidOperationException("DESKTOP_ACTION_REJECTED");
+                        return target.DesktopResult;
+                    }
+                }
+                Thread.Sleep(100);
+            }
+            throw new IOException("DESKTOP_RESULT_UNKNOWN");
+        }
         private void Broadcast()
         {
             string message = DataFiles.Json.Serialize(new { type = "state", generation = generation, locked = desiredLocked, mediaVersion = DataFiles.CurrentVersion(root) });
@@ -313,6 +348,16 @@ namespace RoomTN20.Runtime
                 {
                     string line = ReadLine(pipe, 4096);
                     Dictionary<string, object> acknowledgement = DataFiles.Object(line);
+                    if (acknowledgement.ContainsKey("desktopRequest"))
+                    {
+                        lock (gate)
+                        {
+                            player.DesktopRequest = DataFiles.Text(acknowledgement, "desktopRequest");
+                            player.DesktopResult = DataFiles.Text(acknowledgement, "result");
+                            player.DesktopAccepted = DataFiles.Text(acknowledgement, "status") == "accepted";
+                        }
+                        continue;
+                    }
                     string reported = DataFiles.Text(acknowledgement, "state");
                     if (reported != "locked" && reported != "unlocked" && reported != "ui-offline") continue;
                     lock (gate)
@@ -672,6 +717,9 @@ namespace RoomTN20.Runtime
             internal bool Unavailable = true;
             internal DateTime LastAckUtc = DateTime.MinValue;
             internal int WriterBusy;
+            internal string DesktopRequest;
+            internal string DesktopResult;
+            internal bool DesktopAccepted;
         }
         private static string ProcessImage(int processId)
         {
