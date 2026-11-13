@@ -39,10 +39,10 @@ final class LanTransport {
     }
 
     List<ManagedDevice> discover(String key, List<String> unicastTargets) throws Exception {
-        return discover(key, unicastTargets, device -> { });
+        return discover(key, unicastTargets, Collections.emptyList(), device -> { });
     }
 
-    List<ManagedDevice> discover(String key, List<String> unicastTargets, java.util.function.Consumer<ManagedDevice> onFound) throws Exception {
+    List<ManagedDevice> discover(String key, List<String> unicastTargets, List<String> knownTargets, java.util.function.Consumer<ManagedDevice> onFound) throws Exception {
         String nonce = UUID.randomUUID().toString().replace("-", "");
         JSONObject request = new JSONObject().put("type", "discover").put("nonce", nonce)
                 .put("signature", LanProtocol.hmac(key, "discover\n" + nonce));
@@ -56,8 +56,16 @@ final class LanTransport {
             boolean sent = false;
             try { sendToAddresses(socket, bytes, PORT, broadcast); sent = true; }
             catch (IOException unavailable) { if (!pending.hasNext() || closed) throw unavailable; }
-            long deadline = System.nanoTime() + 2_600_000_000L;
+            long start = System.nanoTime();
+            long deadline = start + 2_600_000_000L;
+            long retryAt = start + 1_200_000_000L;
+            boolean retried = knownTargets.isEmpty();
+            Set<String> unanswered = new LinkedHashSet<>(knownTargets);
             while (System.nanoTime() < deadline && !closed) {
+                if (!retried && !pending.hasNext() && System.nanoTime() >= retryAt) {
+                    retried = true;
+                    pending = new ArrayList<>(unanswered).iterator();
+                }
                 if (pending.hasNext()) {
                     Set<InetAddress> batch = new LinkedHashSet<>();
                     for (int i = 0; i < 32 && pending.hasNext(); i++) {
@@ -132,6 +140,7 @@ final class LanTransport {
                             device.runtimeMessage = runtimeMessage;
                         }
                     } catch (IllegalArgumentException invalidRuntime) { }
+                    unanswered.remove(device.ip);
                     if (found.put(device.listKey(), device) == null) onFound.accept(device);
                 } catch (SocketTimeoutException ignored) { }
                 catch (JSONException | IllegalArgumentException malformed) {

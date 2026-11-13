@@ -383,6 +383,7 @@ public final class MainActivity extends Activity {
         heading.addView(name, weighted());
         heading.addView(text(presence(room, device), 12, room.scanError.isEmpty() && device.online ? GREEN : RED));
         card.addView(heading, matchWrap());
+        if (!device.online && device.lastSeen > 0) card.addView(note("Lần cuối thấy: " + DateFormat.getDateTimeInstance().format(new Date(device.lastSeen))));
         card.addView(text(device.ip + "  •  " + device.mac + "\nUWF C: " + device.uwfDescription()
                 + "\nMàn hình: " + device.lockDescription() + "\nQuảng cáo: " + mediaStatus(room, device), 13, Color.DKGRAY), matchWrap());
         card.addView(text("Chạm để xem chi tiết và thao tác", 12, BLUE), matchWrap());
@@ -663,6 +664,8 @@ public final class MainActivity extends Activity {
         catch (RuntimeException error) { openPrompts--; throw error; }
     }
 
+    private final Map<String, Set<String>> knownBeforeScan = new LinkedHashMap<>();
+    private boolean scanRenderScheduled;
     private final Set<String> scanningRooms = new LinkedHashSet<>();
 
     private void refresh() {
@@ -670,7 +673,12 @@ public final class MainActivity extends Activity {
         List<RoomModel> targets = new ArrayList<>();
         RoomModel current = rooms.get(roomId);
         if (current == null) targets.addAll(rooms.values()); else targets.add(current);
+        Map<String, List<String>> knownAddresses = new LinkedHashMap<>();
         for (RoomModel room : targets) {
+            knownBeforeScan.put(room.id, new LinkedHashSet<>(room.devices.keySet()));
+            Set<String> addresses = new LinkedHashSet<>();
+            for (ManagedDevice device : room.devices.values()) if (VpnTargets.isPrivateAddress(device.ip)) addresses.add(device.ip);
+            knownAddresses.put(room.id, new ArrayList<>(addresses));
             scanningRooms.add(room.id);
             for (ManagedDevice device : room.devices.values()) device.online = false;
         }
@@ -686,10 +694,16 @@ public final class MainActivity extends Activity {
                     if (destroyed) return;
                     try {
                         if (room.key.isEmpty()) throw new IllegalStateException("Không đọc được khóa mã hóa của phòng");
-                        found.put(room.id, transport.discover(room.key, scanTargets(room), device -> postResult(() -> {
+                        found.put(room.id, transport.discover(room.key, scanTargets(room), knownAddresses.get(room.id), device -> postResult(() -> {
                             device.lastSeen = System.currentTimeMillis();
                             room.devices.put(device.listKey(), device.copy());
-                            render();
+                            if (!scanRenderScheduled) {
+                                scanRenderScheduled = true;
+                                handler.postDelayed(() -> {
+                                    scanRenderScheduled = false;
+                                    if (!destroyed && !scanningRooms.isEmpty()) render();
+                                }, 150);
+                            }
                         })));
                         List<ManagedDevice> completed = found.get(room.id);
                         postResult(() -> {
@@ -1007,6 +1021,16 @@ public final class MainActivity extends Activity {
 
     private String roomCounts(RoomModel room) {
         if (!room.scanError.isEmpty()) return "Đã lưu " + room.devices.size() + " máy • Hiện tại chưa xác định (lỗi quét)";
+        Set<String> known = knownBeforeScan.get(room.id);
+        if (known != null) {
+            int answered = 0;
+            for (String id : known) {
+                ManagedDevice device = room.devices.get(id);
+                if (device != null && device.online) answered++;
+            }
+            return "Đã nhận " + answered + "/" + known.size() + " máy đã lưu • " + (room.onlineCount() - answered)
+                    + " máy mới • " + (known.size() - answered) + (scanningRooms.contains(room.id) ? " đang kiểm tra" : " chưa phản hồi");
+        }
         return room.devices.size() + " máy • " + room.onlineCount() + " online • " + (room.devices.size() - room.onlineCount()) + " offline / chưa phản hồi";
     }
 
