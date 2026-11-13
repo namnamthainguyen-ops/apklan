@@ -377,7 +377,14 @@ def close_result(expected_error=None):
 
 def bulk(action, expected_ids=IDS_A, expected_error=None):
     start = len(control()["events"])
-    tap(by_id("action_" + action), lambda tree: has_button(tree, "Thực hiện"))
+    extra = {"freeze": "Đóng băng C:", "unfreeze": "Bỏ đóng băng C:",
+             "lock": "Khóa màn hình", "unlock": "Mở màn hình"}
+    if action in extra:
+        label = extra[action]
+        tap_text("Thao tác khác", lambda tree: any(n.get("text") == label for n in tree.iter("node")))
+        tap_text(label, lambda tree: has_button(tree, "Thực hiện"))
+    else:
+        tap(by_id("action_" + action), lambda tree: has_button(tree, "Thực hiện"))
     tap_text("Thực hiện", lambda tree: not has_button(tree, "Thực hiện"))
     events = wait_events(start, action, expected_ids)
     close_result(expected_error)
@@ -446,8 +453,12 @@ tap(lambda node: node.get("content-desc") == "device:CI-A-01",
     lambda tree: any(node.attrib.get("text", "").startswith("Hostname: CI-A-01") for node in tree.iter("node")))
 tree = wait_text("Hostname: CI-A-01")
 action_ids = detail_action_ids()
-for action in ["wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock"]:
+for action in ["wake", "shutdown", "restart"]:
     assert "action_" + action in action_ids, f"Missing detail action: {action}"
+extra_labels = {"Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình",
+                "Mở website", "Đóng ứng dụng đang mở"}
+tap_text("Thao tác khác", lambda tree: extra_labels <= {n.get("text") for n in tree.iter("node")})
+adb("shell", "input", "keyevent", "KEYCODE_BACK")
 tap(by_id("back"), lambda tree: has_id(tree, "select_all"))
 
 single_selection = lambda node: by_id("device_select")(node) and node.get("content-desc") == "Chọn CI-A-01"
