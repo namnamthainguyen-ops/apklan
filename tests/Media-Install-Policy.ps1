@@ -47,7 +47,7 @@ function Get-PfxFingerprint {
 try {
     New-Item -ItemType Directory -Path $testRoot | Out-Null
     foreach ($kind in @('runtime', 'player')) {
-        $filename = if ($kind -eq 'runtime') { 'RoomTN20.Runtime-1.4.0.dll' } else { 'RoomTN20.Player-1.4.0.exe' }
+        $filename = if ($kind -eq 'runtime') { 'RoomTN20.Runtime-1.4.2.dll' } else { 'RoomTN20.Player-1.4.2.exe' }
         $published = Join-Path $repoRoot ('release\' + $filename)
         $resolved = Resolve-LanPowerRuntimePayload -Source $published -PayloadRoot (Join-Path $repoRoot 'client') -Kind $kind
         Assert-True ([IO.Path]::GetFullPath($resolved) -ceq [IO.Path]::GetFullPath($published)) 'Valid published runtime payload must resolve locally without downloading or executing it.'
