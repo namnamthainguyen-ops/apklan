@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -14,7 +14,7 @@ using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Server")]
 [assembly: System.Reflection.AssemblyCompany("TN20")]
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.0.1.0")]
 
 static class Program
 {
@@ -31,19 +31,20 @@ static class Program
             try
             {
                 if (args.Contains("--installed")) Application.Run(new ConsoleWindow());
-                else Install();
+                else if (args.Contains("--install")) Environment.ExitCode = Install(true, false) ? 0 : 1;
+                else Install(false, true);
             }
             finally { instance.ReleaseMutex(); }
         }
     }
 
-    static void Install()
+    static bool Install(bool unattended, bool launch)
     {
         try
         {
             string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RoomTN20");
             string executable = Path.Combine(root, "RoomTN20-Server.exe");
-            if (MessageBox.Show("Cài hoặc cập nhật Room TN20 Server cho tài khoản Windows hiện tại?", "Room TN20 Server", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
+            if (!unattended && MessageBox.Show("Cài hoặc cập nhật Room TN20 Server cho tài khoản Windows hiện tại?", "Room TN20 Server", MessageBoxButtons.OKCancel) != DialogResult.OK) return false;
             Directory.CreateDirectory(root);
             File.Copy(Application.ExecutablePath, executable + ".new", true);
             if (File.Exists(executable)) File.Replace(executable + ".new", executable, null);
@@ -55,9 +56,14 @@ static class Program
             link.Arguments = "--installed";
             link.WorkingDirectory = root;
             link.Save();
-            Application.Run(new ConsoleWindow());
+            if (launch) Application.Run(new ConsoleWindow());
+            return true;
         }
-        catch (Exception error) { MessageBox.Show(error.Message, "Không cài được Room TN20 Server"); }
+        catch (Exception error)
+        {
+            if (!unattended) MessageBox.Show(error.Message, "Không cài được Room TN20 Server");
+            return false;
+        }
     }
 }
 public sealed class Room

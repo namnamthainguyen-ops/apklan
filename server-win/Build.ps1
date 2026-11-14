@@ -1,4 +1,4 @@
-param([string]$OutputPath = (Join-Path $PSScriptRoot '..\release\RoomTN20-Server-1.0.0.exe'))
+param([string]$OutputPath = (Join-Path $PSScriptRoot '..\release\RoomTN20-Server-1.0.1.exe'))
 $ErrorActionPreference = 'Stop'
 $compiler = Join-Path ([Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) 'csc.exe'
 if (!(Test-Path -LiteralPath $compiler)) { throw 'Run this build with Windows PowerShell 5.1.' }

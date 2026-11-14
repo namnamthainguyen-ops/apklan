@@ -1,6 +1,6 @@
-# Room TN20 Server 1.0.0
+# Room TN20 Server 1.0.1
 
-Tải và chạy `RoomTN20-Server-1.0.0.exe` bằng tài khoản Windows dùng để quản lý phòng. Bộ cài tạo lối tắt **Room TN20 Server** trong Start Menu và lưu dữ liệu tại `%LOCALAPPDATA%\RoomTN20\Server`. Khi cập nhật, đóng cửa sổ đang chạy rồi mở bộ cài mới.
+Tải và chạy `RoomTN20-Server-1.0.1.exe` bằng tài khoản Windows dùng để quản lý phòng. Bộ cài tạo lối tắt **Room TN20 Server** trong Start Menu và lưu dữ liệu tại `%LOCALAPPDATA%\RoomTN20\Server`. Khi cập nhật, đóng cửa sổ đang chạy rồi mở bộ cài mới.
 
 1. Mở **Phòng máy → Thêm phòng**. Nhập tên phòng và cùng key 8 ký tự đã dùng trên Android và client.
 2. Chọn **Quét LAN**. Với VPN, vào **Sửa phòng** và nhập IP hoặc CIDR của mạng đích. Windows cần định tuyến tới client trên UDP 17840 và, cho quảng cáo, TCP 17842.

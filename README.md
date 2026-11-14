@@ -331,4 +331,4 @@ Khi chuẩn bị một bản thử, đưa tệp phát hành vào GitHub và dùn
 
 ## Room TN20 Server cho Windows
 
-[Tải bộ cài Server 1.0.0](https://github.com/namnamthainguyen-ops/apklan/releases/tag/server-v1.0.0) · [Hướng dẫn kết nối và quản lý phòng](server-win/README.md)
+[Tải bộ cài Server 1.0.1](https://github.com/namnamthainguyen-ops/apklan/releases/tag/server-v1.0.1) · [Hướng dẫn kết nối và quản lý phòng](server-win/README.md)
