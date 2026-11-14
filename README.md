@@ -328,3 +328,7 @@ New-ItemProperty -Path $policyPath -Name PilotUpdates -PropertyType DWord -Value
 Đặt `PilotUpdates` thành `0` để quay lại kênh chính thức. Máy giữ phiên bản cao nhất đã cài và tiếp tục cập nhật khi có bản chính thức mới hơn. Nếu UWF bảo vệ C:, thay đổi chính sách cần được lưu khi C: ghi được.
 
 Khi chuẩn bị một bản thử, đưa tệp phát hành vào GitHub và dùng `updates/Publish-UpdateManifest.ps1 -Channel pilot` để ký `updates/pilot.json`. Bản chính thức dùng `-Channel stable`. App hiển thị nhóm thử, phiên bản và trạng thái cập nhật trong chi tiết máy. Nếu C: còn đóng băng, client chờ mở bảo vệ. Nếu UWF đã được đặt mở ở phiên sau, client báo chờ khởi động lại.
+
+## Room TN20 Server cho Windows
+
+[Tải bộ cài Server 1.0.0](https://github.com/namnamthainguyen-ops/apklan/releases/tag/server-v1.0.0) · [Hướng dẫn kết nối và quản lý phòng](server-win/README.md)
