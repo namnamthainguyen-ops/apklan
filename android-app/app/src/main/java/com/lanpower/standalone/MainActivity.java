@@ -74,6 +74,7 @@ public final class MainActivity extends Activity {
     private TextView status;
     private TextView selectionSummary;
     private ProgressBar progress;
+    private Button networkButton, mediaButton;
     private Button backButton;
     private Button addButton;
     private Button refreshButton;
@@ -206,6 +207,11 @@ public final class MainActivity extends Activity {
         navigation.addView(backButton, weighted());
         navigation.addView(addButton, weighted());
         navigation.addView(refreshButton, weighted());
+        networkButton = button("Mạng LAN", BLUE, R.id.network_settings);
+        mediaButton = button("Quảng cáo", BLUE, R.id.room_media);
+        navigation.addView(networkButton, weighted());
+        navigation.addView(mediaButton, weighted());
+        for (Button item : new Button[]{backButton, refreshButton, networkButton, mediaButton}) compact(item);
         root.addView(navigation, matchWrap());
 
         status = text(statusMessage, 12, Color.DKGRAY);
@@ -285,6 +291,12 @@ public final class MainActivity extends Activity {
         status.setText(statusMessage);
         progress.setVisibility(busy ? View.VISIBLE : View.GONE);
         backButton.setVisibility(room == null ? View.GONE : View.VISIBLE);
+        networkButton.setVisibility(room == null ? View.GONE : View.VISIBLE);
+        mediaButton.setVisibility(room == null ? View.GONE : View.VISIBLE);
+        networkButton.setEnabled(!busy);
+        mediaButton.setEnabled(!busy);
+        networkButton.setOnClickListener(view -> { if (room != null) editNetwork(room); });
+        mediaButton.setOnClickListener(view -> { if (room != null) { showingMedia = true; deviceId = null; render(); } });
         addButton.setVisibility(room == null ? View.VISIBLE : View.GONE);
         backButton.setEnabled(!busy);
         addButton.setEnabled(!busy && !loadFailed);
@@ -332,16 +344,7 @@ public final class MainActivity extends Activity {
     private void renderRoom(RoomModel room) {
         selected.retainAll(room.devices.keySet());
         content.addView(text(roomCounts(room), 16, NAVY), matchWrap());
-        LinearLayout roomTools = row();
-        Button network = button("Mạng LAN/VPN", BLUE, R.id.network_settings);
-        network.setEnabled(!busy);
-        network.setOnClickListener(view -> editNetwork(room));
-        roomTools.addView(network, weighted());
-        Button media = button("Quảng cáo phòng", BLUE, R.id.room_media);
-        media.setEnabled(!busy);
-        media.setOnClickListener(view -> { showingMedia = true; deviceId = null; render(); });
-        roomTools.addView(media, weighted());
-        content.addView(roomTools, matchWrap());
+
         if (!room.scanError.isEmpty()) content.addView(note("Lần quét thất bại, trạng thái hiện tại chưa xác định: " + room.scanError));
         CheckBox all = new CheckBox(this);
         selectAllBox = all;
@@ -423,9 +426,10 @@ public final class MainActivity extends Activity {
                 confirmAction(room, targets, action);
             });
             if (oneDevice == null) selectionButtons.add(button);
+            compact(button);
             first.addView(button, weighted());
         }
-        parent.addView(first, matchWrap());
+
         Button more = button("Thao tác khác", NAVY, View.NO_ID);
         more.setEnabled(!busy && (oneDevice != null || !selected.isEmpty()));
         if (oneDevice == null) selectionButtons.add(more);
@@ -437,13 +441,15 @@ public final class MainActivity extends Activity {
                 else desktopPrompt(room, targets, index == 4);
             }).create());
         });
-        parent.addView(more, matchWrap());
+        compact(more);
+        first.addView(more, weighted());
+        parent.addView(first, matchWrap());
     }
 
     private void desktopPrompt(RoomModel room, List<ManagedDevice> targets, boolean openWeb) {
         EditText url = new EditText(this);
         url.setSingleLine();
-        url.setHint("https://example.com");
+        url.setHint("20.com.vn");
         url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle((openWeb ? "Mở website" : "Đóng ứng dụng") + " • " + targets.size() + " máy")
@@ -452,7 +458,8 @@ public final class MainActivity extends Activity {
         else builder.setMessage("Gửi yêu cầu đóng các cửa sổ ứng dụng. Windows có thể hỏi lưu dữ liệu.");
         AlertDialog dialog = builder.create();
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-            String value = openWeb ? url.getText().toString().trim() : "";
+            String input = openWeb ? url.getText().toString().trim() : "";
+            final String value = openWeb && !input.contains("://") ? "https://" + input : input;
             if (openWeb) {
                 try {
                     java.net.URI parsed = new java.net.URI(value);
@@ -460,7 +467,7 @@ public final class MainActivity extends Activity {
                             (!"https".equalsIgnoreCase(parsed.getScheme()) && !"http".equalsIgnoreCase(parsed.getScheme())))
                         throw new IllegalArgumentException();
                 } catch (Exception invalid) {
-                    url.setError("Nhập địa chỉ HTTP hoặc HTTPS hợp lệ");
+                    url.setError("Nhập tên miền hợp lệ, ví dụ 20.com.vn");
                     return;
                 }
             }
@@ -468,15 +475,28 @@ public final class MainActivity extends Activity {
             setBusy(true, "Đang gửi yêu cầu…");
             executor.execute(() -> {
                 List<String> results = new ArrayList<>();
-                for (ManagedDevice target : targets) {
+                Map<String, ManagedDevice> fresh = new LinkedHashMap<>();
+                String scanFailure = "";
+                try {
+                    Set<String> addresses = new LinkedHashSet<>();
+                    for (ManagedDevice target : targets) addresses.add(target.ip);
+                    for (ManagedDevice device : transport.discover(room.key, new ArrayList<>(addresses))) fresh.put(device.listKey(), device);
+                } catch (Exception error) { scanFailure = readable(error); }
+                for (ManagedDevice selectedDevice : targets) {
+                    ManagedDevice target = fresh.get(selectedDevice.listKey());
                     String result;
-                    if (!target.online || !room.scanError.isEmpty()) result = "Chưa xác nhận online";
-                    else if (!target.supports("desktopactions")) result = "Cần cập nhật client Windows và quét lại";
+                    if (target == null) result = scanFailure.isEmpty() ? "Máy không trả lời khi xác minh lại" : scanFailure;
+                    else if (!target.supports("desktopactions")) {
+                        if (target.updateAuthenticated && target.clientVersionCode < 16) result = "Cần client Windows 1.4.2 trở lên";
+                        else if (target.runtimeAuthenticated && !"ready".equals(target.runtimeStatus))
+                            result = "Bộ điều khiển phiên Windows chưa sẵn sàng: " + target.runtimeMessage;
+                        else result = "Máy chưa xác nhận hỗ trợ điều khiển phiên Windows";
+                    }
                     else {
                         try { result = transport.desktop(room.key, target, openWeb ? "open-web" : "close-apps", value); }
                         catch (Exception error) { result = readable(error); }
                     }
-                    results.add(target.hostname + " • " + result);
+                    results.add(selectedDevice.hostname + " • " + result);
                 }
                 postResult(() -> {
                     setBusy(false, "Đã gửi yêu cầu");
@@ -1078,6 +1098,11 @@ public final class MainActivity extends Activity {
         params.setMargins(0, dp(5), 0, dp(5));
         value.setLayoutParams(params);
         return value;
+    }
+
+    private void compact(Button button) {
+        button.setPadding(dp(2), 0, dp(2), 0);
+        button.setMaxLines(2);
     }
 
     private Button button(String value, int color, int id) {

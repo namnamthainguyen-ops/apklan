@@ -64,7 +64,7 @@ adb install release/LanPowerStandalone-1.0.0-debug.apk
 adb shell am start -W -n com.lanpower.standalone/.MainActivity
 python3 tests/android-ui-smoke.py --prepare-key-only
 adb install -r release/RoomTN20-1.3.1.apk
-adb install -r release/RoomTN20-1.4.3.apk
+adb install -r release/RoomTN20-1.4.4.apk
 mkdir -p emulator-evidence/published-release-upgrade
 curl -fsS -X POST -H 'Content-Type: application/json' -d '{"devices":{"00000000-0000-4000-8000-000000000004":{"online":false}}}' http://127.0.0.1:17841/set > /dev/null
 adb shell am start -W -n com.lanpower.standalone/.MainActivity | tee emulator-evidence/published-release-upgrade/launch.txt
