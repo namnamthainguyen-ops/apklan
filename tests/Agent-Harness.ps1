@@ -6,6 +6,8 @@ $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors)
 if ($errors.Count -gt 0) { throw 'Cannot parse production agent.' }
 $replacements = @{
+    'Get-LanPowerBootCapability' = "function Get-LanPowerBootCapability { return ',boot-638000000000000000' }"
+    'Test-LanPowerPilotUpdates' = 'function Test-LanPowerPilotUpdates { return $false }'
     'Initialize-LanPowerDesktopFallback' = 'function Initialize-LanPowerDesktopFallback { }'
     'Get-PrimaryMacAddress' = "function Get-PrimaryMacAddress { return '00:11:22:33:44:55' }"
     'Get-UwfState' = "function Get-UwfState { if (Get-Variable TestUwfState -Scope Script -ErrorAction SilentlyContinue) { return `$script:TestUwfState }; return 'OFF' }"

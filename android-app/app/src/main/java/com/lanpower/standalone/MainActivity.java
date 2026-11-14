@@ -95,7 +95,7 @@ public final class MainActivity extends Activity {
     private final Runnable autoRefresh = new Runnable() {
         @Override public void run() {
             if (!visible || destroyed) return;
-            if (!busy && openPrompts == 0 && !rooms.isEmpty()) refresh();
+            if (!busy && openPrompts == 0 && !rooms.isEmpty()) refresh(true, true);
             updater.check(false);
             handler.postDelayed(this, 20000);
         }
@@ -390,7 +390,9 @@ public final class MainActivity extends Activity {
         heading.addView(name, weighted());
         heading.addView(text(presence(room, device), 12, room.scanError.isEmpty() && device.online ? GREEN : RED));
         card.addView(heading, matchWrap());
-        if (!device.online && device.lastSeen > 0) card.addView(note("Lần cuối thấy: " + DateFormat.getDateTimeInstance().format(new Date(device.lastSeen))));
+        if (device.lastSeen > 0) card.addView(note("Lần cuối thấy: " + DateFormat.getDateTimeInstance().format(new Date(device.lastSeen))));
+        if (room.duplicateId(device)) card.addView(note("Trùng ID client với máy khác. Kiểm tra ảnh ghost và cấu hình phần cứng."));
+        if (room.restartChecks.containsKey(device.listKey())) card.addView(note(room.restartChecks.get(device.listKey()).message));
         card.addView(text(device.ip + "  •  " + device.mac + "\nUWF C: " + device.uwfDescription()
                 + "\nMàn hình: " + device.lockDescription() + "\nQuảng cáo: " + mediaStatus(room, device), 13, Color.DKGRAY), matchWrap());
         card.addView(text("Chạm để xem chi tiết và thao tác", 12, BLUE), matchWrap());
@@ -410,6 +412,11 @@ public final class MainActivity extends Activity {
                 + "\nMàn hình: " + device.lockDescription() + "\nQuảng cáo phòng: " + mediaStatus(room, device)
                 + "\nCập nhật Windows: " + (device.updateAuthenticated ? "Mã " + device.clientVersionCode + " • Mới nhất " + device.latestVersion + " • " + device.updateStatus + "\n" + device.updateMessage : "Chưa có thông tin đã xác thực"), 15, NAVY), matchWrap());
         content.addView(info);
+        if (device.supports("pilotupdate")) content.addView(note("Nhóm cập nhật thử"));
+        if (device.updateAuthenticated && "blocked-uwf".equals(device.updateStatus)) content.addView(note("Cập nhật đang chờ mở UWF ổ C:"));
+        if (device.updateAuthenticated && "pending-reboot".equals(device.updateStatus)) content.addView(note("Cập nhật đang chờ khởi động lại để mở UWF"));
+        if (room.duplicateId(device)) content.addView(note("Trùng ID client với máy khác. Kiểm tra ảnh ghost và cấu hình phần cứng."));
+        if (room.restartChecks.containsKey(device.listKey())) content.addView(note(room.restartChecks.get(device.listKey()).message));
         String desktopStatus = room.scanError.isEmpty() ? device.desktopBlockReason() : "Cần quét lại máy";
         content.addView(note("Mở website / Đóng ứng dụng: " + (desktopStatus.isEmpty() ? "Phiên Windows sẵn sàng" : desktopStatus)));
         if (!device.supportsUwf()) content.addView(note("Chưa xác thực được UWF. Bộ cài client mới tự chuẩn bị UWF: cài hoặc cập nhật client rồi khởi động lại nếu được yêu cầu. Windows Home/Pro không hỗ trợ tính năng này."));
@@ -445,7 +452,7 @@ public final class MainActivity extends Activity {
             showPrompt(new AlertDialog.Builder(this).setTitle("Thao tác khác").setItems(labels, (dialog, index) -> {
                 if (index < 4) confirmAction(room, targets, actions[index + 3]);
                 else desktopPrompt(room, targets, index == 4);
-            }).create());
+            }).setNegativeButton("Đóng", null).create());
         });
         compact(more);
         first.addView(more, weighted());
@@ -602,7 +609,17 @@ public final class MainActivity extends Activity {
                         }
                     } else result = transport.command(key, device, action);
                     if (lockAction) waitingLock.put(device.listKey(), device);
-                    else { successes++; results.add(device.hostname + ": OK — " + result); }
+                    else {
+                        successes++;
+                        boolean pending = "wake".equals(action) || "shutdown".equals(action) || "restart".equals(action);
+                        results.add(device.hostname + (pending ? ": ĐÃ GỬI — " : ": ĐÃ XÁC NHẬN — ") + result);
+                        if ("restart".equals(action)) postResult(() -> room.trackRestart(device, System.currentTimeMillis()));
+                    }
+                } catch (LanTransport.CommandRejectedException error) {
+                    results.add(device.hostname + ": BỊ TỪ CHỐI — " + (lockAction ? roomFeatureError(error) : readable(error)));
+                } catch (java.net.SocketTimeoutException error) {
+                    results.add(device.hostname + ": CHƯA XÁC NHẬN — Máy có thể đã thực hiện lệnh");
+                    if ("restart".equals(action)) postResult(() -> room.trackRestart(device, System.currentTimeMillis()));
                 } catch (Exception error) {
                     results.add(device.hostname + ": LỖI — " + (lockAction ? roomFeatureError(error) : readable(error)));
                 }
@@ -617,7 +634,7 @@ public final class MainActivity extends Activity {
                         ManagedDevice actual = byId.get(requested.listKey());
                         if (actual != null && actual.lockAuthenticated && expected.equals(actual.lockState)) {
                             successes++;
-                            results.add(requested.hostname + ": OK — " + actual.lockDescription());
+                            results.add(requested.hostname + ": ĐÃ XÁC NHẬN — " + actual.lockDescription());
                         } else results.add(requested.hostname + ": CHƯA XÁC NHẬN — " + (actual == null ? "Máy chưa phản hồi" : actual.lockDescription()));
                     }
                     postResult(() -> { room.applyScan(confirmed, System.currentTimeMillis()); try { repository.save(rooms.values()); } catch (Exception ignored) { } });
@@ -714,19 +731,23 @@ public final class MainActivity extends Activity {
 
     private void refresh() { refresh(false); }
 
-    private void refresh(boolean quick) {
+    private void refresh(boolean quick) { refresh(quick, false); }
+
+    private void refresh(boolean quick, boolean periodic) {
         if (busy || destroyed || rooms.isEmpty()) return;
         List<RoomModel> targets = new ArrayList<>();
         RoomModel current = rooms.get(roomId);
         if (current == null) targets.addAll(rooms.values()); else targets.add(current);
         Map<String, List<String>> knownAddresses = new LinkedHashMap<>();
+        Set<String> quickRooms = new LinkedHashSet<>();
+        long started = System.currentTimeMillis();
         for (RoomModel room : targets) {
             knownBeforeScan.put(room.id, new LinkedHashSet<>(room.devices.keySet()));
             Set<String> addresses = new LinkedHashSet<>();
             for (ManagedDevice device : room.devices.values()) if (VpnTargets.isPrivateAddress(device.ip)) addresses.add(device.ip);
             knownAddresses.put(room.id, new ArrayList<>(addresses));
+            if (quick && !addresses.isEmpty() && (!periodic || started - room.lastFullScan < 300_000)) quickRooms.add(room.id);
             scanningRooms.add(room.id);
-            for (ManagedDevice device : room.devices.values()) device.online = false;
         }
         setBusy(true, "Đang quét " + targets.size() + " phòng…");
         executor.execute(() -> {
@@ -741,7 +762,7 @@ public final class MainActivity extends Activity {
                     try {
                         if (room.key.isEmpty()) throw new IllegalStateException("Không đọc được khóa mã hóa của phòng");
                         List<String> known = knownAddresses.get(room.id);
-                        boolean quickRoom = quick && !known.isEmpty();
+                        boolean quickRoom = quickRooms.contains(room.id);
                         List<String> addresses = quickRoom ? known : scanTargets(room);
                         found.put(room.id, transport.discover(room.key, addresses, known, device -> postResult(() -> {
                             device.lastSeen = System.currentTimeMillis();
@@ -757,7 +778,7 @@ public final class MainActivity extends Activity {
                         List<ManagedDevice> completed = found.get(room.id);
                         postResult(() -> {
                             scanningRooms.remove(room.id);
-                            room.applyScan(completed, System.currentTimeMillis());
+                            room.applyScan(completed, System.currentTimeMillis(), !quickRoom);
                             render();
                         });
                     } catch (Exception error) { failures.put(room.id, readable(error)); }
@@ -769,8 +790,7 @@ public final class MainActivity extends Activity {
                 long now = System.currentTimeMillis();
                 for (RoomModel room : targets) {
                     scanningRooms.remove(room.id);
-                    if (found.containsKey(room.id)) room.applyScan(found.get(room.id), now);
-                    else room.scanError = failures.getOrDefault(room.id, "Quét chưa hoàn tất");
+                    if (!found.containsKey(room.id)) room.scanError = failures.getOrDefault(room.id, "Quét chưa hoàn tất");
                 }
                 String message = failures.isEmpty() ? "Đã cập nhật " + found.size() + " phòng • " + DateFormat.getTimeInstance().format(new Date(now))
                         : "Đã quét " + found.size() + " phòng, " + failures.size() + " phòng lỗi. Mở phòng để xem chi tiết";
@@ -1075,17 +1095,25 @@ public final class MainActivity extends Activity {
             int answered = 0;
             for (String id : known) {
                 ManagedDevice device = room.devices.get(id);
-                if (device != null && device.online) answered++;
+                if (device != null && device.online && (scanningRooms.contains(room.id)
+                        ? device.lastSeen > room.lastScan : device.missedScans == 0)) answered++;
             }
-            return "Đã nhận " + answered + "/" + known.size() + " máy đã lưu • " + (room.onlineCount() - answered)
-                    + " máy mới • " + (known.size() - answered) + (scanningRooms.contains(room.id) ? " đang kiểm tra" : " chưa phản hồi");
+            int newMachines = 0;
+            for (ManagedDevice device : room.devices.values()) if (!known.contains(device.listKey())) newMachines++;
+            return "Đã nhận " + answered + "/" + known.size() + " máy đã lưu • " + newMachines
+                    + " máy mới • " + (scanningRooms.contains(room.id) ? (known.size() - answered) + " đang kiểm tra"
+                    : (answered + newMachines) + " online • " + (room.devices.size() - room.onlineCount())
+                            + " offline • " + (room.onlineCount() - answered - newMachines) + " chưa phản hồi");
         }
         return room.devices.size() + " máy • " + room.onlineCount() + " online • " + (room.devices.size() - room.onlineCount()) + " offline / chưa phản hồi";
     }
 
     private String presence(RoomModel room, ManagedDevice device) {
-        if (scanningRooms.contains(room.id)) return device.online ? "Online" : "Đang kiểm tra";
-        return !room.scanError.isEmpty() ? "Chưa xác định" : device.online ? "Online" : "Offline / chưa phản hồi";
+        if (scanningRooms.contains(room.id) && device.lastSeen <= room.lastScan)
+            return "Đang kiểm tra • " + (device.online ? "Online gần nhất" : "Chưa phản hồi gần nhất");
+        if (!room.scanError.isEmpty()) return "Chưa xác định";
+        if (!device.online) return "Offline / chưa phản hồi";
+        return device.missedScans == 0 ? "Online" : "Chưa phản hồi (1/2)";
     }
 
     private static String actionLabel(String action) {

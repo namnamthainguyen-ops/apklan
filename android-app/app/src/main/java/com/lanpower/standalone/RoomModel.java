@@ -12,8 +12,10 @@ final class RoomModel {
     final String name;
     final boolean legacy;
     final Map<String, ManagedDevice> devices = new LinkedHashMap<>();
+    final Map<String, RestartCheck> restartChecks = new LinkedHashMap<>();
     String key;
     long lastScan;
+    long lastFullScan;
     String scanError = "";
     String networkTargets = "";
     RoomPlaylist playlist = new RoomPlaylist();
@@ -27,14 +29,50 @@ final class RoomModel {
     }
 
     void applyScan(Collection<ManagedDevice> found, long scanTime) {
-        for (ManagedDevice device : devices.values()) device.online = false;
+        applyScan(found, scanTime, true);
+    }
+
+    void applyScan(Collection<ManagedDevice> found, long scanTime, boolean full) {
+        Set<String> answered = new java.util.HashSet<>();
         for (ManagedDevice device : found) {
+            answered.add(device.listKey());
             device.online = true;
+            device.missedScans = 0;
             device.lastSeen = scanTime;
             devices.put(device.listKey(), device);
+            RestartCheck restart = restartChecks.get(device.listKey());
+            if (restart != null && !restart.bootToken.isEmpty() && !device.bootToken().isEmpty()
+                    && !restart.bootToken.equals(device.bootToken())) {
+                restart.message = "Đã xác nhận máy khởi động lại và online";
+                restart.finished = true;
+            }
         }
+        for (ManagedDevice device : devices.values()) {
+            if (answered.contains(device.listKey())) continue;
+            device.missedScans = Math.min(2, device.missedScans + 1);
+            if (device.missedScans == 2) device.online = false;
+        }
+        for (RestartCheck restart : restartChecks.values()) {
+            if (!restart.finished && scanTime >= restart.deadline) {
+                restart.message = "Chưa xác nhận khởi động lại trong 5 phút";
+                restart.finished = true;
+            }
+        }
+        if (full) lastFullScan = scanTime;
         lastScan = scanTime;
         scanError = "";
+    }
+
+    void trackRestart(ManagedDevice device, long now) {
+        restartChecks.put(device.listKey(), new RestartCheck(device.bootToken(), now + 300_000));
+    }
+
+    boolean duplicateId(ManagedDevice device) {
+        for (ManagedDevice other : devices.values()) {
+            if (other.online && other.missedScans == 0 && device.id.equals(other.id)
+                    && !device.listKey().equals(other.listKey())) return true;
+        }
+        return false;
     }
 
     int onlineCount() {
@@ -50,6 +88,20 @@ final class RoomModel {
     }
 }
 
+final class RestartCheck {
+    final String bootToken;
+    final long deadline;
+    String message;
+    boolean finished;
+
+    RestartCheck(String bootToken, long deadline) {
+        this.bootToken = bootToken;
+        this.deadline = deadline;
+        message = bootToken.isEmpty() ? "Đã gửi yêu cầu. Client hiện tại chưa hỗ trợ xác minh khởi động lại"
+                : "Đang chờ máy khởi động lại và online";
+    }
+}
+
 final class ManagedDevice {
     String id;
     String hostname;
@@ -60,6 +112,7 @@ final class ManagedDevice {
     String agentVersion = "unknown";
     boolean stateAuthenticated;
     boolean online;
+    int missedScans;
     long lastSeen;
     long clientVersionCode;
     String latestVersion = "unknown";
@@ -103,6 +156,12 @@ final class ManagedDevice {
 
     boolean supportsUwf() {
         return supports("uwf");
+    }
+
+    String bootToken() {
+        if (stateAuthenticated) for (String value : capabilities.split(","))
+            if (value.matches("boot-[0-9]{10,20}")) return value;
+        return "";
     }
 
     boolean supports(String name) {
@@ -154,6 +213,7 @@ final class ManagedDevice {
         value.stateAuthenticated = stateAuthenticated;
         value.online = online;
         value.lastSeen = lastSeen;
+        value.missedScans = missedScans;
         value.clientVersionCode = clientVersionCode;
         value.latestVersion = latestVersion;
         value.updateStatus = updateStatus;

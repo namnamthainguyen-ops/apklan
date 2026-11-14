@@ -212,7 +212,7 @@ final class LanTransport {
                 DatagramPacket packet = new DatagramPacket(new byte[4097], 4097);
                 try { socket.receive(packet); }
                 catch (SocketTimeoutException timeoutError) {
-                    if (!canRetry) throw timeoutError;
+                    if (!canRetry) break;
                     canRetry = false;
                     socket.send(outgoing);
                     continue;
@@ -225,9 +225,9 @@ final class LanTransport {
                             !LanProtocol.verifyAcknowledgement(key, requestId, status, response.optString("signature"))) continue;
                     String message = response.optString("message");
                     boolean verifiedDetail = LanProtocol.verifyAckDetail(key, requestId, status, message, response.optString("detailSignature"));
-                    if (!"accepted".equals(status)) throw new IOException(verifiedDetail ? message : "Agent từ chối lệnh (không có chi tiết đã xác thực)");
+                    if (!"accepted".equals(status)) throw new CommandRejectedException(verifiedDetail ? message : "Agent từ chối lệnh (không có chi tiết đã xác thực)");
                     if ("freeze".equals(action) || "unfreeze".equals(action) || "wake".equals(action) || "lock".equals(action) || "unlock".equals(action)) {
-                        if (!verifiedDetail) throw new IOException("Chưa xác thực được chi tiết kết quả; cần agent mới và quét lại trạng thái");
+                        if (!verifiedDetail) throw new SocketTimeoutException("Chưa xác thực được chi tiết kết quả; cần agent mới và quét lại trạng thái");
                         return message;
                     }
                     return verifiedDetail ? message : "Agent đã nhận lệnh; quét lại để kiểm tra trạng thái";
@@ -235,8 +235,14 @@ final class LanTransport {
                     // Wait for a valid, authenticated ACK within the original deadline.
                 }
             }
-            throw new SocketTimeoutException("Không nhận được phản hồi agent");
+            throw new SocketTimeoutException(desktopValue != null && !closed
+                    ? "Chưa xác nhận kết quả. Máy có thể đã thực hiện lệnh."
+                    : "Không nhận được phản hồi agent");
         } finally { activeSockets.remove(socket); }
+    }
+
+    static final class CommandRejectedException extends IOException {
+        CommandRejectedException(String message) { super(message); }
     }
 
     private static JSONObject json(DatagramPacket packet) throws JSONException {

@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -56,24 +58,22 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Preserve exact published EXE and build from source
+      - name: Build Windows client from source
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Path '.ci-client-setup/published', '.ci-client-setup/built' -Force | Out-Null
-          Copy-Item -LiteralPath 'release/RoomTN20-ClientSetup-1.4.4.exe' -Destination '.ci-client-setup/published/RoomTN20-ClientSetup-1.4.4.exe'
+          New-Item -ItemType Directory -Path '.ci-client-setup/built' -Force | Out-Null
           ./client-runtime/Build.ps1 -OutputDirectory '.ci-client-setup/runtime-built'
           ./client-runtime/Test.ps1 -OutputDirectory '.ci-client-setup/runtime-built'
           ./client-runtime/Test.ps1
-          ./client-installer/Build.ps1 -OutputPath '.ci-client-setup/built/RoomTN20-ClientSetup-1.4.4.exe'
+          ./client-installer/Build.ps1 -OutputPath '.ci-client-setup/built/RoomTN20-ClientSetup-1.4.5.exe'
       - name: Verify embedded payload hashes, KDF and in-process form contract
         shell: powershell
         run: |
-          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/built/RoomTN20-ClientSetup-1.4.4.exe'
-          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/published/RoomTN20-ClientSetup-1.4.4.exe'
-      - name: Install from single published EXE, verify SYSTEM agent, reinstall and uninstall
+          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/built/RoomTN20-ClientSetup-1.4.5.exe'
+      - name: Install from built EXE, verify SYSTEM agent, reinstall and uninstall
         shell: powershell
-        run: ./tests/Install-Smoke.ps1 -InstallerExe '.ci-client-setup/published/RoomTN20-ClientSetup-1.4.4.exe'
+        run: ./tests/Install-Smoke.ps1 -InstallerExe '.ci-client-setup/built/RoomTN20-ClientSetup-1.4.5.exe'
       - name: Record installer checksums
         shell: powershell
         run: |
@@ -114,10 +114,10 @@ jobs:
         run: gradle --no-daemon testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease
       - name: Verify published release signature and reject debug builds
         run: |
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs release/RoomTN20-1.4.7.apk | tee published-apk-signature.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs release/RoomTN20-1.4.9.apk | tee published-apk-signature.txt
           grep -q '253e62e567d191b4481aaae2cd087610e1ca730b76e5cf19ec4e97165fa22b5a' published-apk-signature.txt
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging release/RoomTN20-1.4.7.apk > published-apk-badging.txt
-          grep -q "versionCode='18' versionName='1.4.7'" published-apk-badging.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging release/RoomTN20-1.4.9.apk > published-apk-badging.txt
+          grep -q "versionCode='20' versionName='1.4.9'" published-apk-badging.txt
           if grep -q 'application-debuggable' published-apk-badging.txt; then exit 1; fi
       - name: APK checksum
         run: sha256sum android-app/app/build/outputs/apk/debug/app-debug.apk | tee apk-sha256.txt

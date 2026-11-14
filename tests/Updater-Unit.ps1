@@ -65,6 +65,12 @@ try {
     $envelope = New-TestEnvelope $payload $key
     $verified = Read-RoomTN20Manifest $envelope $public
     Assert-True ($verified.windows.versionCode -eq 6) 'Valid RS256 manifest must retain its signed version.'
+    $pilotPayload = New-TestPayload
+    $pilotPayload.channel = 'pilot'
+    $pilotEnvelope = New-TestEnvelope $pilotPayload $key
+    Assert-True ((Read-RoomTN20Manifest $pilotEnvelope $public -Channel pilot).channel -eq 'pilot') 'An opted-in client can verify a signed pilot manifest.'
+    Assert-Rejected { Read-RoomTN20Manifest $pilotEnvelope $public } 'Stable clients must reject pilot manifests.'
+    Assert-Rejected { Read-RoomTN20Manifest $envelope $public -Channel pilot } 'The signed channel must match the manifest URL.'
     $mediaPayload = New-TestPayload
     $mediaPayload.windows.version = '1.3.0'
     $mediaPayload.windows.versionCode = 10

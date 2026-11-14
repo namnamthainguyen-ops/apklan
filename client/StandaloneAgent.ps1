@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.4.4'
-$AgentVersionCode = 18
+$AgentVersion = '1.4.5'
+$AgentVersionCode = 19
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -53,6 +53,19 @@ function Get-LanPowerHardwareDeviceId {
 function Write-DebugLog {
     param([string]$Message)
     if ($DebugMode) { Write-Output $Message }
+}
+
+function Get-LanPowerBootCapability {
+    try {
+        $boot = (Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime
+        if ($boot) { return ',boot-' + $boot.ToUniversalTime().Ticks }
+    } catch { }
+    return ''
+}
+
+function Test-LanPowerPilotUpdates {
+    $policy = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Policies\RoomTN20' -Name PilotUpdates -ErrorAction SilentlyContinue
+    return $policy -and $policy.PilotUpdates -eq 1
 }
 
 function Initialize-LanPowerDesktopFallback {
@@ -117,10 +130,6 @@ function Invoke-LanPowerSessionLock {
     if (-not $script:DisplayRuntime) { throw 'LOCK_RUNTIME_UNAVAILABLE: Check the D: data volume, runtime files and interactive player.' }
     return $script:DisplayRuntime.SetLocked($Action -eq 'lock')
 }
-
-$created = $false
-$mutex = [Threading.Mutex]::new($false, 'Global\LanPowerStandaloneAgent', [ref]$created)
-if (-not $created) { exit 0 }
 
 function Get-HmacBase64 {
     param([string]$SecretBase64, [string]$Value)
@@ -348,6 +357,10 @@ if ($SelfTest) {
     exit 0
 }
 
+$created = $false
+$mutex = [Threading.Mutex]::new($false, 'Global\LanPowerStandaloneAgent', [ref]$created)
+if (-not $created) { $mutex.Dispose(); exit 0 }
+
 try {
     if (-not (Test-Path -LiteralPath $ConfigPath)) { throw "Missing configuration: $ConfigPath" }
     $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
@@ -359,6 +372,7 @@ try {
     $Port = [int]$config.port
     $hostname = $env:COMPUTERNAME
     $mac = Get-PrimaryMacAddress
+    $bootCapability = Get-LanPowerBootCapability
     Initialize-LanPowerRuntime -Config $config
     $udp = [Net.Sockets.UdpClient]::new($Port)
     Write-DebugLog "Listening on UDP $Port"
@@ -383,12 +397,17 @@ try {
                     $responseSignature = Get-HmacBase64 $config.managementKey "discovery`n$($message.nonce)`n$($config.deviceId)`n$hostname`n$mac"
                     if (-not $script:DisplayRuntime -and ([DateTime]::UtcNow - $script:RuntimeLastTry).TotalSeconds -ge 30) { Initialize-LanPowerRuntime -Config $config }
                     $uwfState = Get-UwfState
-                    $capabilities = Get-UwfCapabilities
+                    $capabilities = (Get-UwfCapabilities) + $bootCapability
+                    if (Test-LanPowerPilotUpdates) { $capabilities += ',pilotupdate' }
                     $display = Get-LanPowerRuntimeSnapshot
                     if ($display.available) { $capabilities += ',desktopactions,desktopretry' }
                     if ($display.available -and $display.mediaPort -gt 0) { $capabilities += ',sessionlock,media,mediasync' }
                     $stateSignature = Get-HmacBase64 $config.managementKey "state`n$($message.nonce)`n$($config.deviceId)`n$AgentVersion`n$uwfState`n$capabilities"
                     $update = Get-AgentUpdateStatus
+                    if ($update.status -eq 'blocked-uwf' -and $uwfState -eq 'ON (next OFF)') {
+                        $update.status = 'pending-reboot'
+                        $update.message = 'Restart Windows to complete unfreezing C: before updating.'
+                    }
                     $updateSignature = Get-HmacBase64 $config.managementKey "update`n$($message.nonce)`n$($config.deviceId)`n$AgentVersionCode`n$($update.latestVersion)`n$($update.status)`n$($update.message)"
                     $lockSignature = Get-HmacBase64 $config.managementKey "lockstate`n$($message.nonce)`n$($config.deviceId)`n$($display.lockState)`n$($display.mediaVersion)`n$($display.mediaPort)`n$($display.mediaCertSha256)"
                     $runtimeSignature = Get-HmacBase64 $config.managementKey "runtime`n$($message.nonce)`n$($config.deviceId)`n$script:RuntimeStatus`n$script:RuntimeMessage"

@@ -20,9 +20,13 @@ public final class RoomModelTest {
         updated.ip = "192.168.1.30";
         room.applyScan(Collections.singletonList(updated), 2000);
         assertEquals(2, room.devices.size());
+        assertEquals(2, room.onlineCount());
+        assertEquals(1, room.devices.get(device("two").listKey()).missedScans);
+        room.applyScan(Collections.singletonList(updated), 3000, false);
         assertEquals(1, room.onlineCount());
         assertEquals("192.168.1.30", room.devices.get(device("one").listKey()).ip);
-        assertEquals(2000, room.devices.get(device("one").listKey()).lastSeen);
+        assertEquals(3000, room.devices.get(device("one").listKey()).lastSeen);
+        assertEquals(2000, room.lastFullScan);
         assertFalse(room.devices.get(device("two").listKey()).online);
         assertEquals(1000, room.devices.get(device("two").listKey()).lastSeen);
     }
@@ -35,6 +39,7 @@ public final class RoomModelTest {
         assertEquals(2, room.onlineCount());
         assertEquals(second.ip, room.selected(Collections.singleton(second.listKey())).get(0).ip);
         assertEquals(first.id, second.id);
+        assertTrue(room.duplicateId(first));
     }
 
     @Test public void zeroReplyScanMarksSavedDevicesOfflineWithoutDeletingThem() {
@@ -42,8 +47,10 @@ public final class RoomModelTest {
         room.applyScan(Collections.singletonList(device("one")), 1000);
         room.applyScan(Collections.emptyList(), 2000);
         assertEquals(1, room.devices.size());
+        assertEquals(1, room.onlineCount());
+        room.applyScan(Collections.emptyList(), 3000);
         assertEquals(0, room.onlineCount());
-        assertEquals(2000, room.lastScan);
+        assertEquals(3000, room.lastScan);
     }
 
     @Test public void scanningOneRoomNeverMutatesAnotherRoom() {
@@ -52,6 +59,7 @@ public final class RoomModelTest {
         first.applyScan(Collections.singletonList(device("one")), 1000);
         second.applyScan(Collections.singletonList(device("two")), 1000);
         first.applyScan(Collections.emptyList(), 2000);
+        first.applyScan(Collections.emptyList(), 3000);
         assertEquals(0, first.onlineCount());
         assertEquals(1, second.onlineCount());
         assertFalse(second.devices.containsKey(device("one").listKey()));
@@ -63,8 +71,29 @@ public final class RoomModelTest {
         List<ManagedDevice> selected = room.selected(new LinkedHashSet<>(Arrays.asList(device("one").listKey(), "other-room-id")));
         assertEquals(1, selected.size());
         room.applyScan(Collections.emptyList(), 2000);
+        room.applyScan(Collections.emptyList(), 3000);
         assertTrue(selected.get(0).online);
         assertFalse(room.devices.get(device("one").listKey()).online);
+    }
+
+    @Test public void restartRequiresAuthenticatedChangedBootToken() {
+        RoomModel room = new RoomModel("room", "A", false, "key");
+        ManagedDevice first = device("one");
+        first.stateAuthenticated = true;
+        first.capabilities = "power,boot-638000000000000000";
+        room.trackRestart(first, 1000);
+        room.applyScan(Collections.singletonList(first), 2000);
+        assertFalse(room.restartChecks.get(first.listKey()).finished);
+        ManagedDevice rebooted = device("one");
+        rebooted.hostname = "New name";
+        rebooted.ip = "192.168.1.25";
+        rebooted.capabilities = "power,boot-638000000000000001";
+        room.applyScan(Collections.singletonList(rebooted), 3000);
+        assertFalse(room.restartChecks.get(first.listKey()).finished);
+        rebooted.stateAuthenticated = true;
+        room.applyScan(Collections.singletonList(rebooted), 4000);
+        assertTrue(room.restartChecks.get(first.listKey()).finished);
+        assertEquals(1, room.devices.size());
     }
 
     @Test public void unsignedOrSubstringCapabilitiesNeverEnableUwf() {

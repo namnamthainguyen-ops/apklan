@@ -2,8 +2,9 @@
 param(
     [Parameter(Mandatory)][string]$PrivateKeyPath,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$SourceCommit,
-    [string]$Version = '1.4.4',
-    [int]$VersionCode = 18,
+    [string]$Version = '1.4.5',
+    [int]$VersionCode = 19,
+    [ValidateSet('stable', 'pilot')][string]$Channel = 'stable',
     [string]$AndroidVersion,
     [int]$AndroidVersionCode,
     [string]$ReleaseNotes = 'Khoa/mo khoa may va anh/video quang cao rieng cho tung phong, luu tren D: khong can mo dong bang C:.'
@@ -27,7 +28,7 @@ $android.packageName = 'com.lanpower.standalone'
 $android.signerSha256 = '253e62e567d191b4481aaae2cd087610e1ca730b76e5cf19ec4e97165fa22b5a'
 $payload = [ordered]@{
     schemaVersion = 1
-    channel = 'stable'
+    channel = $Channel
     publishedUtc = [DateTime]::UtcNow.ToString('o')
     android = $android
     windows = [ordered]@{
@@ -51,7 +52,7 @@ try {
     if ($rsa.ToXmlString($false) -cne $expectedPublic) { throw 'Private key does not match the deployed update trust key.' }
     $signature = $rsa.SignData($bytes, [Security.Cryptography.CryptoConfig]::MapNameToOID('SHA256'))
     $envelope = [ordered]@{algorithm = 'RS256'; payload = [Convert]::ToBase64String($bytes); signature = [Convert]::ToBase64String($signature)} | ConvertTo-Json
-    [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'stable.json'), $envelope + "`n", [Text.UTF8Encoding]::new($false))
-    Write-Output "SIGNED_STABLE_MANIFEST=PASS $Version ($SourceCommit)"
+    [IO.File]::WriteAllText((Join-Path $PSScriptRoot "$Channel.json"), $envelope + "`n", [Text.UTF8Encoding]::new($false))
+    Write-Output "SIGNED_MANIFEST=PASS $Channel $Version ($SourceCommit)"
 }
 finally { $rsa.Dispose() }

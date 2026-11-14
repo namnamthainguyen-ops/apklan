@@ -459,8 +459,12 @@ for action in ["wake", "shutdown", "restart"]:
 extra_labels = {"Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình",
                 "Mở website", "Đóng ứng dụng đang mở"}
 tap_text("Thao tác khác", lambda tree: extra_labels <= {n.get("text") for n in tree.iter("node")})
-adb("shell", "input", "keyevent", "KEYCODE_BACK")
-tap(by_id("back"), lambda tree: has_id(tree, "select_all"))
+tap_text("Đóng", lambda tree: has_id(tree, "back") and not any(
+    node.get("text") == "Đóng" for node in tree.iter("node")))
+tap(by_id("back"))
+scroll_top()
+wait_for(lambda tree: has_id(tree, "select_all"), "Quay lại did not restore the room")
+wait_idle()
 
 single_selection = lambda node: by_id("device_select")(node) and node.get("content-desc") == "Chọn CI-A-01"
 tap(single_selection, lambda tree: any(single_selection(node.attrib) and node.attrib.get("checked") == "true"
@@ -484,6 +488,7 @@ control("/set", {"devices": {second: {"failActions": []}}})
 bulk("unfreeze")
 bulk("restart")
 bulk("shutdown")
+refresh()
 refresh()
 wait_text("2 offline")
 assert visible_devices() == {"CI-A-01", "CI-A-02"}, "Offline computers disappeared from saved room"

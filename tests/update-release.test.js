@@ -4,8 +4,12 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file));
+const readAt = (commit, file) => execFileSync('git', [
+  '-c', 'safe.directory=' + root.replaceAll('\\', '/'), 'show', commit + ':' + file
+], { cwd: root, maxBuffer: 32 * 1024 * 1024 });
 
 test('deployed update public keys agree and contain no private RSA parameters', () => {
   const xml = read('updates/public-key.xml').toString('utf8');
@@ -39,16 +43,20 @@ test('published stable update manifest is signed and pins exact release files in
   assert.equal(manifest.schemaVersion, 1);
   assert.equal(manifest.channel, 'stable');
   assert.equal(manifest.android.packageName, 'com.lanpower.standalone');
-  const androidMetadata = read('android-app/app/build.gradle').toString('utf8');
-  const windowsMetadata = read('client/Install-Core.ps1').toString('utf8');
+  function immutablePath(artifact) {
+    const match = artifact.url.match(/^https:\/\/raw\.githubusercontent\.com\/namnamthainguyen-ops\/apklan\/([a-f0-9]{40})\/(client|release)\/([A-Za-z0-9_.-]+)$/);
+    assert.ok(match, 'Release files must use immutable repository commit URLs');
+    return { commit: match[1], file: `${match[2]}/${match[3]}` };
+  }
+  const androidMetadata = readAt(immutablePath(manifest.android).commit, 'android-app/app/build.gradle').toString('utf8');
+  const windowsMetadata = readAt(immutablePath(manifest.windows.core).commit, 'client/Install-Core.ps1').toString('utf8');
   assert.equal(manifest.android.versionCode, Number(androidMetadata.match(/versionCode\s+(\d+)/)[1]));
   assert.equal(manifest.android.version, androidMetadata.match(/versionName\s+'([^']+)'/)[1]);
   assert.equal(manifest.windows.versionCode, Number(windowsMetadata.match(/versionCode = (\d+)/)[1]));
   assert.equal(manifest.windows.version, windowsMetadata.match(/version = '([^']+)'/)[1]);
   for (const artifact of [manifest.android, ...['agent', 'core', 'updater', 'runtime', 'player', 'setup'].map(name => manifest.windows[name])]) {
-    const match = artifact.url.match(/^https:\/\/raw\.githubusercontent\.com\/namnamthainguyen-ops\/apklan\/([a-f0-9]{40})\/(client|release)\/([A-Za-z0-9_.-]+)$/);
-    assert.ok(match, 'Release files must use immutable repository commit URLs');
-    const actual = crypto.createHash('sha256').update(read(`${match[2]}/${match[3]}`)).digest('hex');
+    const { commit, file } = immutablePath(artifact);
+    const actual = crypto.createHash('sha256').update(readAt(commit, file)).digest('hex');
     assert.equal(actual, artifact.sha256.toLowerCase());
   }
 });

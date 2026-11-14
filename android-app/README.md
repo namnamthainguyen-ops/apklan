@@ -36,3 +36,9 @@ APK debug phục vụ kiểm thử được tạo tại `app/build/outputs/apk/d
 CI chạy toàn bộ bộ thử debug và nâng cấp APK phát hành thật bằng giao diện công khai. Bài thử release không dùng `run-as`, không bật tuyến fixture hay cờ tắt cập nhật; IP fixture được nhập qua mục Mạng LAN/VPN như người dùng bình thường. CI kiểm tra chữ ký và bảo đảm APK phát hành không debuggable.
 
 JVM tests kiểm tra các vector KDF/HMAC độc lập, ràng buộc chữ ký/relay MAC/update metadata/lockstate/media, playlist snapshot độc lập từng phòng và giới hạn dung lượng, thao tác UWF, Magic Packet, VPN IPv4/CIDR, RS256 manifest/tamper/wrong-key/rollback/allowlist. CI còn có fixture UDP để chạy UI trên emulator. Chỉ bản debug trên emulator có thể bật fixture bằng intent `--ez lanpower_ci true`; khi bật, app thêm đích `10.0.2.2` để liên lạc fixture trên máy host và tắt cập nhật mạng. `--ez disable_updates true` tắt riêng cập nhật trên debug/emulator để kiểm thử unicast VPN thật mà không thêm đường fixture. Điện thoại thật và bản release bỏ qua các cờ kiểm thử này.
+## Quét và xác nhận trạng thái máy
+
+- App quét nhanh IP đã lưu mỗi 20 giây khi đang mở và rảnh. Khoảng 5 phút một lần, app tìm máy mới trong LAN và các dải VPN đã cấu hình của phòng. **Quét LAN → Tìm máy mới** chạy ngay một lượt đầy đủ.
+- Máy được đánh dấu offline sau hai lượt quét thành công liên tiếp mà máy không trả lời. App giữ lần cuối thấy và báo lỗi quét riêng.
+- Sau khi gửi lệnh khởi động lại, app theo dõi tối đa 5 phút khi còn mở. Client Windows 1.4.5 trở lên gửi thời điểm khởi động đã xác thực để app xác nhận máy đã khởi động lại và online.
+- Nếu hai máy trả lời với cùng ID nhưng khác MAC, app hiện cảnh báo trùng ID. Client Windows tính ID từ phần cứng khi khởi chạy, nên có thể giữ cấu hình phòng và nội dung quảng cáo trong ảnh ghost.

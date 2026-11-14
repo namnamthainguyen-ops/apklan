@@ -30,7 +30,7 @@ function Get-RoomTN20FileHash {
 }
 
 function Read-RoomTN20Manifest {
-    param([string]$EnvelopeJson, [string]$PublicKeyXml)
+    param([string]$EnvelopeJson, [string]$PublicKeyXml, [ValidateSet('stable', 'pilot')][string]$Channel = 'stable')
     if ($EnvelopeJson.Length -gt 262144) { throw 'UPDATE_MANIFEST_TOO_LARGE' }
     $envelope = $EnvelopeJson | ConvertFrom-Json
     if ($envelope.algorithm -cne 'RS256') { throw 'UPDATE_SIGNATURE_ALGORITHM_INVALID' }
@@ -47,7 +47,7 @@ function Read-RoomTN20Manifest {
     finally { $rsa.Dispose() }
     $utf8 = [Text.UTF8Encoding]::new($false, $true)
     $payload = $utf8.GetString($payloadBytes) | ConvertFrom-Json
-    if ([int]$payload.schemaVersion -ne 1 -or $payload.channel -cne 'stable') { throw 'UPDATE_SCHEMA_INVALID' }
+    if ([int]$payload.schemaVersion -ne 1 -or $payload.channel -cne $Channel) { throw 'UPDATE_SCHEMA_INVALID' }
     $published = [DateTimeOffset]::Parse([string]$payload.publishedUtc)
     if ($published -gt [DateTimeOffset]::UtcNow.AddHours(24)) { throw 'UPDATE_PUBLISHED_DATE_INVALID' }
     if ([string]$payload.windows.version -cnotmatch '\A\d+\.\d+\.\d+\z' -or [int]$payload.windows.versionCode -lt 1) { throw 'UPDATE_VERSION_INVALID' }
@@ -122,7 +122,8 @@ function Read-RoomTN20BoundedUtf8 {
 }
 
 function Get-RoomTN20ManifestJson {
-    $request = [Net.HttpWebRequest]::Create('https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/updates/stable.json')
+    param([ValidateSet('stable', 'pilot')][string]$Channel = 'stable')
+    $request = [Net.HttpWebRequest]::Create("https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/updates/$Channel.json")
     $request.AllowAutoRedirect = $false
     $request.Timeout = 30000
     $request.ReadWriteTimeout = 30000
@@ -153,7 +154,21 @@ function Invoke-RoomTN20Update {
         . (Join-Path $root 'Install-Core.ps1')
         [void](Get-LanPowerInstallPath $root)
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $manifest = Read-RoomTN20Manifest -EnvelopeJson (Get-RoomTN20ManifestJson) -PublicKeyXml (Get-Content -LiteralPath (Join-Path $root 'Update-PublicKey.xml') -Raw)
+        $publicKey = Get-Content -LiteralPath (Join-Path $root 'Update-PublicKey.xml') -Raw
+        $manifest = Read-RoomTN20Manifest -EnvelopeJson (Get-RoomTN20ManifestJson) -PublicKeyXml $publicKey
+        $policy = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Policies\RoomTN20' -Name PilotUpdates -ErrorAction SilentlyContinue
+        if ($policy -and $policy.PilotUpdates -eq 1) {
+            try {
+                $pilot = Read-RoomTN20Manifest -EnvelopeJson (Get-RoomTN20ManifestJson -Channel pilot) -PublicKeyXml $publicKey -Channel pilot
+                if ([int]$pilot.windows.versionCode -gt [int]$manifest.windows.versionCode) { $manifest = $pilot }
+            }
+            catch [Net.WebException] {
+                $response = $_.Exception.Response
+                if ($response -isnot [Net.HttpWebResponse]) { throw }
+                try { if ([int]$response.StatusCode -ne 404) { throw } }
+                finally { $response.Dispose() }
+            }
+        }
         $latest = [string]$manifest.windows.version
         if (-not (Test-RoomTN20NewerVersion $currentCode ([int]$manifest.windows.versionCode))) {
             Write-RoomTN20UpdateStatus $root $currentCode $latest 'current' 'The installed client is current.'
