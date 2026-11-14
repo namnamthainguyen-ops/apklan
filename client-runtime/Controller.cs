@@ -17,8 +17,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
-[assembly: System.Reflection.AssemblyVersion("1.4.2.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.2.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.4.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.4.0")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Runtime")]
@@ -73,6 +73,23 @@ namespace RoomTN20.Runtime
         {
             return new Controller(dataRoot, keyBase64, deviceId, port, certificatePath, playerExePath);
         }
+        public static Controller StartDesktop(string playerExePath)
+        {
+            return new Controller(playerExePath);
+        }
+
+        private Controller(string playerExePath)
+        {
+            playerPath = Path.GetFullPath(playerExePath);
+            DataFiles.RejectReparse(playerPath);
+            if (!File.Exists(playerPath)) throw new InvalidOperationException("RUNTIME_PLAYER_MISSING");
+            root = Path.GetDirectoryName(playerPath);
+            ThreadPool.QueueUserWorkItem(delegate { AcceptPlayers(); });
+            timer = new Timer(delegate { Tick(); }, null, 1000, 3000);
+        }
+
+        public bool MediaAvailable { get { return listener != null; } }
+
         private Controller(string dataRoot, string keyBase64, string id, int mediaPort, string certificatePath, string playerExePath)
         {
             root = DataFiles.CanonicalRoot(dataRoot);
@@ -154,13 +171,31 @@ namespace RoomTN20.Runtime
             {
                 uint session = WTSGetActiveConsoleSessionId();
                 PlayerConnection current = players.Find(delegate(PlayerConnection player) { return player.SessionId == session; });
-                return new RuntimeSnapshot { DesiredLocked = desiredLocked, LockState = current == null || current.Unavailable || (DateTime.UtcNow - current.LastAckUtc).TotalSeconds > 10 ? "ui-offline" :
+                string unavailable = HasConsoleUser(session) ? "ui-offline" : "signed-out";
+                return new RuntimeSnapshot { DesiredLocked = desiredLocked, LockState = current == null || current.Unavailable || (DateTime.UtcNow - current.LastAckUtc).TotalSeconds > 10 ? unavailable :
+                    current.WindowsLocked ? "windows-locked" :
                     current.Generation != generation ? "pending" : current.ReportedLocked ? "locked" : "unlocked",
-                    MediaVersion = DataFiles.CurrentVersion(root), MediaPort = port, MediaCertSha256 = pin, PlayerCount = players.Count };
+                    MediaVersion = MediaAvailable ? DataFiles.CurrentVersion(root) : "none", MediaPort = port, MediaCertSha256 = pin ?? "", PlayerCount = players.Count };
             }
         }
+        private static bool HasConsoleUser(uint session)
+        {
+            if (session == 0 || session == UInt32.MaxValue) return false;
+            IntPtr buffer;
+            int bytes;
+            if (!WTSQuerySessionInformation(IntPtr.Zero, session, 5, out buffer, out bytes)) return true;
+            try { return bytes > 2 && !String.IsNullOrEmpty(Marshal.PtrToStringUni(buffer)); }
+            finally { WTSFreeMemory(buffer); }
+        }
+
+        [DllImport("wtsapi32.dll", CharSet = CharSet.Unicode)]
+        private static extern bool WTSQuerySessionInformation(IntPtr server, uint session, int info, out IntPtr buffer, out int bytes);
+        [DllImport("wtsapi32.dll")]
+        private static extern void WTSFreeMemory(IntPtr buffer);
+
         public string SetLocked(bool locked)
         {
+            if (!MediaAvailable) throw new InvalidOperationException("MEDIA_RUNTIME_UNAVAILABLE");
             string requestGeneration;
             lock (gate)
             {
@@ -179,7 +214,7 @@ namespace RoomTN20.Runtime
                     if (generation != requestGeneration) throw new InvalidOperationException("LOCK_REQUEST_SUPERSEDED");
                     uint session = WTSGetActiveConsoleSessionId();
                     PlayerConnection current = players.Find(delegate(PlayerConnection player) { return player.SessionId == session; });
-                    if (current != null && !current.Unavailable && current.Generation == requestGeneration && current.ReportedLocked == locked)
+                    if (current != null && !current.Unavailable && !current.WindowsLocked && current.Generation == requestGeneration && current.ReportedLocked == locked)
                         return locked ? "Room TN20 display locked; the interactive player confirmed the screen." : "Room TN20 display unlocked; the interactive player confirmed the screen.";
                 }
                 Thread.Sleep(100);
@@ -193,6 +228,7 @@ namespace RoomTN20.Runtime
             if (disposed) return;
             try
             {
+                if (!MediaAvailable) { EnsurePlayer(); lock (gate) Broadcast(); return; }
                 string recovery = Path.Combine(root, "State", "recovery-unlock.json");
                 DataFiles.RejectReparse(recovery);
                 if (File.Exists(recovery))
@@ -211,13 +247,15 @@ namespace RoomTN20.Runtime
             }
             catch { /* No system lock/reboot fallback. Desired state remains recoverable. */ }
         }
+        private uint lastLaunchSession = UInt32.MaxValue;
         private void EnsurePlayer(bool force = false)
         {
             lock (gate)
             {
                 uint session = WTSGetActiveConsoleSessionId();
                 if (disposed || session == UInt32.MaxValue || session == 0 || players.Exists(delegate(PlayerConnection player) { return player.SessionId == session; }) ||
-                    (!force && (DateTime.UtcNow - lastLaunch).TotalSeconds < 30)) return;
+                    (!force && lastLaunchSession == session && (DateTime.UtcNow - lastLaunch).TotalSeconds < 5)) return;
+                lastLaunchSession = session;
                 lastLaunch = DateTime.UtcNow;
                 LaunchInteractivePlayer(session);
             }
@@ -254,7 +292,7 @@ namespace RoomTN20.Runtime
             lock (gate)
             {
                 uint session = WTSGetActiveConsoleSessionId();
-                target = players.Find(delegate(PlayerConnection p) { return p.SessionId == session && !p.Unavailable && !p.ReportedLocked; });
+                target = players.Find(delegate(PlayerConnection p) { return p.SessionId == session && !p.Unavailable && !p.WindowsLocked && !p.ReportedLocked && p.Generation == generation && (DateTime.UtcNow - p.LastAckUtc).TotalSeconds <= 10; });
                 if (desiredLocked || target == null) throw new InvalidOperationException("DESKTOP_NOT_AVAILABLE");
                 if (Interlocked.CompareExchange(ref target.WriterBusy, 1, 0) != 0) throw new InvalidOperationException("DESKTOP_BUSY");
             }
@@ -284,7 +322,7 @@ namespace RoomTN20.Runtime
         }
         private void Broadcast()
         {
-            string message = DataFiles.Json.Serialize(new { type = "state", generation = generation, locked = desiredLocked, mediaVersion = DataFiles.CurrentVersion(root) });
+            string message = DataFiles.Json.Serialize(new { type = "state", generation = generation, locked = desiredLocked, mediaVersion = MediaAvailable ? DataFiles.CurrentVersion(root) : "none" });
             foreach (PlayerConnection player in players.ToArray())
             {
                 if (Interlocked.CompareExchange(ref player.WriterBusy, 1, 0) != 0) continue;
@@ -359,12 +397,13 @@ namespace RoomTN20.Runtime
                         continue;
                     }
                     string reported = DataFiles.Text(acknowledgement, "state");
-                    if (reported != "locked" && reported != "unlocked" && reported != "ui-offline") continue;
+                    if (reported != "locked" && reported != "unlocked" && reported != "ui-offline" && reported != "windows-locked") continue;
                     lock (gate)
                     {
                         player.Generation = DataFiles.Text(acknowledgement, "generation");
                         player.ReportedLocked = reported == "locked";
                         player.Unavailable = reported == "ui-offline";
+                        player.WindowsLocked = reported == "windows-locked";
                         player.LastAckUtc = DateTime.UtcNow;
                     }
                 }
@@ -701,11 +740,11 @@ namespace RoomTN20.Runtime
         {
             disposed = true;
             timer.Dispose();
-            listener.Stop();
+            if (listener != null) listener.Stop();
             if (waitingPipe != null) waitingPipe.Dispose();
             lock (gate) { foreach (PlayerConnection player in players) player.Pipe.Dispose(); players.Clear(); }
-            certificate.Dispose();
-            Array.Clear(key, 0, key.Length);
+            if (certificate != null) certificate.Dispose();
+            if (key != null) Array.Clear(key, 0, key.Length);
         }
         private sealed class PlayerConnection
         {
@@ -715,6 +754,7 @@ namespace RoomTN20.Runtime
             internal string Generation = "";
             internal bool ReportedLocked;
             internal bool Unavailable = true;
+            internal bool WindowsLocked;
             internal DateTime LastAckUtc = DateTime.MinValue;
             internal int WriterBusy;
             internal string DesktopRequest;

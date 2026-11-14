@@ -82,10 +82,10 @@ test('real agent ignores malformed, oversized, unsigned and wrongly signed disco
   const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
   assert.equal(reply.type, 'discovery'); assert.equal(reply.requestNonce, nonce); assert.equal(reply.deviceId, agent.deviceId);
   assert.equal(reply.signature, sign(agent.key, `discovery\n${nonce}\n${reply.deviceId}\n${reply.hostname}\n${reply.mac}`));
-  assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media', 'mediasync', 'desktopactions']));
+  assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media', 'mediasync', 'desktopactions', 'desktopretry']));
   assert.equal(reply.stateSignature, sign(agent.key, `state\n${nonce}\n${reply.deviceId}\n${reply.agentVersion}\n${reply.uwf}\n${reply.capabilities}`));
   assert.equal(reply.lockSignature, sign(agent.key, `lockstate\n${nonce}\n${reply.deviceId}\n${reply.lockState}\n${reply.mediaVersion}\n${reply.mediaPort}\n${reply.mediaCertSha256}`));
-  assert.equal(reply.clientVersionCode, 16);
+  assert.equal(reply.clientVersionCode, 18);
   assert.equal(reply.runtimeStatus, 'ready');
   assert.equal(reply.runtimeSignature, sign(agent.key, `runtime\n${nonce}\n${reply.deviceId}\n${reply.runtimeStatus}\n${reply.runtimeMessage}`));
   assert.equal(reply.updateSignature, sign(agent.key, `update\n${nonce}\n${reply.deviceId}\n${reply.clientVersionCode}\n${reply.latestVersion}\n${reply.updateStatus}\n${reply.updateMessage}`));
@@ -211,4 +211,15 @@ test('missing interactive display returns signed lock failure without claiming a
   const state = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
   assert.equal(state.lockState, 'unlocked');
   assert.doesNotMatch(agent.output(), /TEST_SESSION_LOCK|TEST_POWER_ACTION/);
+});
+
+test('desktop retry returns the signed result without executing twice', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t);
+  const request = command(agent.key, agent.deviceId, {action: 'open-web', targetMac: '00:11:22:33:44:55', desktopValue: 'https://example.com/'});
+  request.signature = sign(agent.key, ['command', request.requestId, request.deviceId, request.action, request.timestamp, request.nonce, request.targetMac, request.desktopValue].join('\n'));
+  const first = await agent.exchange(request, 3000);
+  assert.equal(first.status, 'accepted');
+  assert.deepEqual(await agent.exchange(request, 3000), first);
+  assert.equal(await agent.exchange({...request, desktopValue: 'https://example.org/'}), null);
+  assert.equal((agent.output().match(/TEST_DESKTOP_ACTION=open-web/g) || []).length, 1);
 });

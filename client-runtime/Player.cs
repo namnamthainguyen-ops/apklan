@@ -18,8 +18,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Screen = System.Windows.Forms.Screen;
 
-[assembly: System.Reflection.AssemblyVersion("1.4.2.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.2.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.4.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.4.0")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Display")]
@@ -129,9 +129,13 @@ namespace RoomTN20.Runtime
                                     app.Dispatcher.Invoke(new Action(delegate
                                     {
                                         if (locked || !IsInteractiveDesktopActive()) return;
-                                        try { result = DesktopAction(DataFiles.Text(state, "action"), DataFiles.Text(state, "url")); accepted = true; }
-                                        catch { }
+                                        accepted = true;
                                     }));
+                                    if (accepted)
+                                    {
+                                        try { result = DesktopAction(DataFiles.Text(state, "action"), DataFiles.Text(state, "url")); }
+                                        catch { accepted = false; }
+                                    }
                                     writer.WriteLine(DataFiles.Json.Serialize(new { desktopRequest = DataFiles.Text(state, "request"), status = accepted ? "accepted" : "rejected", result = result }));
                                     writer.Flush();
                                     continue;
@@ -154,7 +158,7 @@ namespace RoomTN20.Runtime
                                     visible = (bool)wanted ? windows.Count == Screen.AllScreens.Length && windows.TrueForAll(delegate(AdWindow window) { return window.IsVisible && new WindowInteropHelper(window).Handle != IntPtr.Zero; }) : windows.TrueForAll(delegate(AdWindow window) { return !window.IsVisible; });
                                 }), DispatcherPriority.Render);
                                 if (!visible) throw new InvalidOperationException("DISPLAY_STATE_NOT_PRESENTED");
-                                writer.WriteLine(DataFiles.Json.Serialize(new { generation = generation, state = IsInteractiveDesktopActive() ? ((bool)wanted ? "locked" : "unlocked") : "ui-offline", mediaVersion = version, monitors = windows.Count }));
+                                writer.WriteLine(DataFiles.Json.Serialize(new { generation = generation, state = IsInteractiveDesktopActive() ? ((bool)wanted ? "locked" : "unlocked") : "windows-locked", mediaVersion = version, monitors = windows.Count }));
                                 writer.Flush();
                             }
                         }
@@ -178,7 +182,8 @@ namespace RoomTN20.Runtime
                 return "Browser launch requested.";
             }
             if (action != "close-apps") throw new InvalidOperationException("INVALID_DESKTOP_ACTION");
-            int sent = 0, failed = 0;
+            int failed = 0;
+            var requested = new List<System.Diagnostics.Process>();
             using (var self = System.Diagnostics.Process.GetCurrentProcess())
             {
                 foreach (var process in System.Diagnostics.Process.GetProcesses())
@@ -188,12 +193,20 @@ namespace RoomTN20.Runtime
                     {
                         if (process.Id == self.Id || process.SessionId != self.SessionId ||
                             process.ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase) || process.MainWindowHandle == IntPtr.Zero) continue;
-                        if (process.CloseMainWindow()) sent++; else failed++;
+                        if (process.CloseMainWindow()) requested.Add(System.Diagnostics.Process.GetProcessById(process.Id)); else failed++;
                     }
                     catch { failed++; }
                 }
             }
-            return "Close requests: " + sent + "; unavailable: " + failed + ". Apps may prompt to save.";
+            if (requested.Count > 0) Thread.Sleep(1200);
+            int remaining = 0;
+            foreach (var process in requested)
+            using (process)
+            {
+                try { process.Refresh(); if (!process.HasExited && process.MainWindowHandle != IntPtr.Zero) remaining++; }
+                catch { failed++; }
+            }
+            return "Close requests: " + requested.Count + "; still open: " + remaining + "; unavailable: " + failed + ".";
         }
         private void Apply(bool desired, string version)
         {

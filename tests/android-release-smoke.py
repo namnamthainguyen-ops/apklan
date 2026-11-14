@@ -12,7 +12,8 @@ exec(compile(helpers.split(marker)[0], str(helper_path), "exec"))
 def refresh():
     wait_idle()
     before = control()["discoveryPackets"]
-    tap(by_id("refresh"), lambda _tree: control()["discoveryPackets"] > before)
+    tap(by_id("refresh"), lambda tree: any(n.get("text") == "Tìm máy mới" for n in tree.iter("node")))
+    tap_text("Tìm máy mới", lambda _tree: control()["discoveryPackets"] > before)
     wait_idle()
 
 

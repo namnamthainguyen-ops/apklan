@@ -27,15 +27,14 @@ import java.util.UUID;
 final class LanTransport {
     private static final int PORT = 17840;
     private final boolean emulatorFixture;
-    private volatile DatagramSocket activeSocket;
+    private final Set<DatagramSocket> activeSockets = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile boolean closed;
 
     LanTransport(boolean emulatorFixture) { this.emulatorFixture = emulatorFixture; }
 
     void close() {
         closed = true;
-        DatagramSocket socket = activeSocket;
-        if (socket != null) socket.close();
+        for (DatagramSocket socket : activeSockets) socket.close();
     }
 
     List<ManagedDevice> discover(String key, List<String> unicastTargets) throws Exception {
@@ -43,18 +42,23 @@ final class LanTransport {
     }
 
     List<ManagedDevice> discover(String key, List<String> unicastTargets, List<String> knownTargets, java.util.function.Consumer<ManagedDevice> onFound) throws Exception {
+        return discover(key, unicastTargets, knownTargets, onFound, false);
+    }
+
+    List<ManagedDevice> discover(String key, List<String> unicastTargets, List<String> knownTargets, java.util.function.Consumer<ManagedDevice> onFound, boolean quick) throws Exception {
         String nonce = UUID.randomUUID().toString().replace("-", "");
         JSONObject request = new JSONObject().put("type", "discover").put("nonce", nonce)
                 .put("signature", LanProtocol.hmac(key, "discover\n" + nonce));
         byte[] bytes = request.toString().getBytes(StandardCharsets.UTF_8);
         Map<String, ManagedDevice> found = new LinkedHashMap<>();
-        try (DatagramSocket socket = openSocket()) {
+        DatagramSocket socket = openSocket();
+        try (DatagramSocket managed = socket) {
             socket.setBroadcast(true);
             socket.setReceiveBufferSize(1024 * 1024);
-            Set<InetAddress> broadcast = addresses();
+            Set<InetAddress> broadcast = quick ? Collections.emptySet() : addresses();
             java.util.Iterator<String> pending = unicastTargets.iterator();
             boolean sent = false;
-            try { sendToAddresses(socket, bytes, PORT, broadcast); sent = true; }
+            try { if (!quick) { sendToAddresses(socket, bytes, PORT, broadcast); sent = true; } }
             catch (IOException unavailable) { if (!pending.hasNext() || closed) throw unavailable; }
             long start = System.nanoTime();
             long deadline = start + 2_600_000_000L;
@@ -142,21 +146,23 @@ final class LanTransport {
                     } catch (IllegalArgumentException invalidRuntime) { }
                     unanswered.remove(device.ip);
                     if (found.put(device.listKey(), device) == null) onFound.accept(device);
+                    if (quick && unanswered.isEmpty()) break;
                 } catch (SocketTimeoutException ignored) { }
                 catch (JSONException | IllegalArgumentException malformed) {
                     // Keep listening for other machines after invalid datagrams.
                 }
             }
             if (closed) throw new IOException("Đã đóng kết nối");
-        } finally { activeSocket = null; }
+        } finally { activeSockets.remove(socket); }
         return new ArrayList<>(found.values());
     }
 
     String wake(ManagedDevice device) throws Exception {
-        try (DatagramSocket socket = openSocket()) {
+        DatagramSocket socket = openSocket();
+        try (DatagramSocket managed = socket) {
             socket.setBroadcast(true);
             sendToAddresses(socket, LanProtocol.magicPacket(device.mac), 9, addresses());
-        } finally { activeSocket = null; }
+        } finally { activeSockets.remove(socket); }
         return "Đã gửi Magic Packet trong LAN cục bộ; VPN không chuyển broadcast tin cậy. Cần relay đang online trong LAN đích để bật máy từ xa; quét lại để xác nhận";
     }
 
@@ -189,16 +195,28 @@ final class LanTransport {
         if (targetMac != null) request.put("targetMac", targetMac);
         if (desktopValue != null) request.put("desktopValue", desktopValue);
         byte[] bytes = request.toString().getBytes(StandardCharsets.UTF_8);
-        try (DatagramSocket socket = openSocket()) {
+        DatagramSocket socket = openSocket();
+        try (DatagramSocket managed = socket) {
             socket.connect(InetAddress.getByName(device.ip), PORT);
-            socket.send(new DatagramPacket(bytes, bytes.length, socket.getInetAddress(), PORT));
+            DatagramPacket outgoing = new DatagramPacket(bytes, bytes.length, socket.getInetAddress(), PORT);
+            socket.send(outgoing);
             long timeout = desktopValue != null ? 12_000_000_000L : ("freeze".equals(action) || "unfreeze".equals(action)) ? 30_000_000_000L
                     : ("lock".equals(action) || "unlock".equals(action)) ? 15_000_000_000L : 3_500_000_000L;
             long deadline = System.nanoTime() + timeout;
+            boolean canRetry = desktopValue != null && device.supports("desktopretry");
+            long retryAt = System.nanoTime() + 8_500_000_000L;
+            if (canRetry) deadline += 8_500_000_000L;
             while (System.nanoTime() < deadline && !closed) {
-                socket.setSoTimeout((int) Math.max(1, (deadline - System.nanoTime()) / 1_000_000L));
+                long next = canRetry ? retryAt : deadline;
+                socket.setSoTimeout((int) Math.max(1, (next - System.nanoTime()) / 1_000_000L));
                 DatagramPacket packet = new DatagramPacket(new byte[4097], 4097);
-                socket.receive(packet);
+                try { socket.receive(packet); }
+                catch (SocketTimeoutException timeoutError) {
+                    if (!canRetry) throw timeoutError;
+                    canRetry = false;
+                    socket.send(outgoing);
+                    continue;
+                }
                 if (packet.getLength() > 4096) continue;
                 try {
                     JSONObject response = json(packet);
@@ -218,7 +236,7 @@ final class LanTransport {
                 }
             }
             throw new SocketTimeoutException("Không nhận được phản hồi agent");
-        } finally { activeSocket = null; }
+        } finally { activeSockets.remove(socket); }
     }
 
     private static JSONObject json(DatagramPacket packet) throws JSONException {
@@ -227,8 +245,8 @@ final class LanTransport {
 
     private DatagramSocket openSocket() throws IOException {
         DatagramSocket socket = new DatagramSocket();
-        activeSocket = socket;
-        if (closed) { socket.close(); throw new IOException("Đã đóng kết nối"); }
+        activeSockets.add(socket);
+        if (closed) { activeSockets.remove(socket); socket.close(); throw new IOException("Đã đóng kết nối"); }
         return socket;
     }
 

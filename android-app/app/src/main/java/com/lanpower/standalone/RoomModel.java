@@ -84,6 +84,23 @@ final class ManagedDevice {
 
     String listKey() { try { return id + "|" + LanProtocol.normalizeMac(mac); } catch (IllegalArgumentException invalidMac) { return id; } }
 
+    String desktopBlockReason() {
+        if (!online) return "Máy chưa phản hồi";
+        if (updateAuthenticated && clientVersionCode < 16) return "Cần client Windows 1.4.2 trở lên";
+        if (!supports("desktopactions") && runtimeAuthenticated && !"ready".equals(runtimeStatus))
+            return "Bộ điều khiển Windows chưa sẵn sàng: " + runtimeMessage;
+        if (!supports("desktopactions")) return "Máy chưa xác nhận hỗ trợ lệnh";
+        if (!lockAuthenticated) return "Chưa xác nhận trạng thái phiên Windows";
+        switch (lockState) {
+            case "unlocked": return "";
+            case "windows-locked":
+            case "locked": return "Màn hình đang khóa";
+            case "signed-out": return "Chưa đăng nhập Windows";
+            case "pending": return "Đang chờ xác nhận trạng thái màn hình";
+            default: return "Phiên Windows chưa sẵn sàng. Kiểm tra máy đã đăng nhập.";
+        }
+    }
+
     boolean supportsUwf() {
         return supports("uwf");
     }
@@ -102,6 +119,8 @@ final class ManagedDevice {
             case "locked": return "Đang khóa và hiển thị quảng cáo";
             case "unlocked": return "Đang mở";
             case "pending": return "Đang chờ màn hình xác nhận";
+            case "windows-locked": return "Windows đang khóa";
+            case "signed-out": return "Chưa đăng nhập Windows";
             case "ui-offline": return "Chưa có màn hình người dùng hoạt động";
             default: return "Chưa xác định";
         }

@@ -120,7 +120,7 @@ final class LanProtocol {
     static String lockStateCanonical(String nonce, String deviceId, String state, String version, int port, String cert) {
         requireField(nonce);
         requireField(deviceId);
-        if (!java.util.Arrays.asList("locked", "unlocked", "pending", "ui-offline").contains(state)) throw new IllegalArgumentException("Invalid lock state");
+        if (!java.util.Arrays.asList("locked", "unlocked", "pending", "ui-offline", "windows-locked", "signed-out").contains(state)) throw new IllegalArgumentException("Invalid lock state");
         if (!("none".equals(version) || version.matches("[a-f0-9]{32}")) || !(port == 0 || port == 17842)
                 || !(cert.isEmpty() || cert.matches("[a-f0-9]{64}"))) throw new IllegalArgumentException("Invalid media state");
         return "lockstate\n" + nonce + "\n" + deviceId + "\n" + state + "\n" + version + "\n" + port + "\n" + cert;

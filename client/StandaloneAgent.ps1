@@ -7,12 +7,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.4.2'
-$AgentVersionCode = 16
+$AgentVersion = '1.4.4'
+$AgentVersionCode = 18
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
 $usedNonces = @{}
+$desktopResults = @{}
 $script:UwfState = 'unknown'
 $script:UwfAvailable = $false
 $script:LastUwfCheck = [DateTime]::MinValue
@@ -54,6 +55,15 @@ function Write-DebugLog {
     if ($DebugMode) { Write-Output $Message }
 }
 
+function Initialize-LanPowerDesktopFallback {
+    try {
+        [void][Reflection.Assembly]::LoadFrom((Join-Path $AgentRoot 'RoomTN20.Runtime.dll'))
+        $script:DisplayRuntime = [RoomTN20.Runtime.Controller]::StartDesktop((Join-Path $AgentRoot 'Display\RoomTN20.Player.exe'))
+    } catch {
+        Write-DebugLog ('Desktop controller unavailable: ' + $_.Exception.GetBaseException().Message)
+    }
+}
+
 function Initialize-LanPowerRuntime {
     param([pscustomobject]$Config)
     $script:RuntimeLastTry = [DateTime]::UtcNow
@@ -62,6 +72,7 @@ function Initialize-LanPowerRuntime {
             $detail = ([string]$Config.runtimeSetupMessage).Replace([string]$Config.managementKey, '[hidden]') -replace '[\r\n\x00]', ' '
             $script:RuntimeMessage = if ($detail.Length -gt 256) { $detail.Substring(0, 256) } else { $detail }
         }
+        Initialize-LanPowerDesktopFallback
         return
     }
     try {
@@ -81,6 +92,7 @@ function Initialize-LanPowerRuntime {
         $script:RuntimeMessage = if ($detail.Length -gt 256) { $detail.Substring(0, 256) } else { $detail }
         Write-DebugLog ('Display/media runtime unavailable: ' + $script:RuntimeMessage)
         $script:DisplayRuntime = $null
+        Initialize-LanPowerDesktopFallback
     }
 }
 
@@ -373,7 +385,8 @@ try {
                     $uwfState = Get-UwfState
                     $capabilities = Get-UwfCapabilities
                     $display = Get-LanPowerRuntimeSnapshot
-                    if ($display.available) { $capabilities += ',sessionlock,media,mediasync,desktopactions' }
+                    if ($display.available) { $capabilities += ',desktopactions,desktopretry' }
+                    if ($display.available -and $display.mediaPort -gt 0) { $capabilities += ',sessionlock,media,mediasync' }
                     $stateSignature = Get-HmacBase64 $config.managementKey "state`n$($message.nonce)`n$($config.deviceId)`n$AgentVersion`n$uwfState`n$capabilities"
                     $update = Get-AgentUpdateStatus
                     $updateSignature = Get-HmacBase64 $config.managementKey "update`n$($message.nonce)`n$($config.deviceId)`n$AgentVersionCode`n$($update.latestVersion)`n$($update.status)`n$($update.message)"
@@ -415,9 +428,9 @@ try {
                 if ([Math]::Abs($now - $timestamp) -gt 120) { continue }
 
                 foreach ($knownNonce in @($usedNonces.Keys)) {
-                    if ($now - [int64]$usedNonces[$knownNonce] -gt 600) { $usedNonces.Remove($knownNonce) }
+                    if ($now - [int64]$usedNonces[$knownNonce] -gt 600) { $usedNonces.Remove($knownNonce); $desktopResults.Remove($knownNonce) }
                 }
-                if ($usedNonces.ContainsKey([string]$message.nonce)) { continue }
+
 
                 $canonical = "command`n$($message.requestId)`n$($message.deviceId)`n$($message.action)`n$timestamp`n$($message.nonce)"
                 if ($message.action -eq 'wake') {
@@ -434,16 +447,28 @@ try {
                 }
                 $expected = Get-HmacBase64 $config.managementKey $canonical
                 if (-not (Test-FixedTimeEqual $message.signature $expected)) { continue }
-                $usedNonces[[string]$message.nonce] = $now
+                $nonceKey = [string]$message.nonce
+                if ($usedNonces.ContainsKey($nonceKey)) {
+                    $cached = $desktopResults[$nonceKey]
+                    if ($cached -and $cached.Signature -ceq $expected -and $cached.Address -eq $remote.Address.ToString()) {
+                        Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status $cached.Status -Message $cached.Message
+                    }
+                    continue
+                }
+                if ($usedNonces.Count -ge 4096) { continue }
+                $usedNonces[$nonceKey] = $now
 
                 if ($message.action -in @('open-web', 'close-apps')) {
                     try {
                         if (-not $script:DisplayRuntime) { throw 'Desktop player is not available.' }
                         $result = $script:DisplayRuntime.RunDesktopAction([string]$message.action, $desktopValue)
-                        Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'accepted' -Message $result
+                        $desktopStatus = 'accepted'
                     } catch {
-                        Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'rejected' -Message 'Desktop unavailable, locked, busy or action could not be confirmed.'
+                        $desktopStatus = 'rejected'
+                        $result = 'Desktop unavailable, locked, busy or action could not be confirmed.'
                     }
+                    $desktopResults[$nonceKey] = @{ Signature = $expected; Address = $remote.Address.ToString(); Status = $desktopStatus; Message = $result }
+                    Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status $desktopStatus -Message $result
                     continue
                 }
                 if ($message.action -notin @('shutdown', 'restart', 'freeze', 'unfreeze', 'wake', 'lock', 'unlock')) {

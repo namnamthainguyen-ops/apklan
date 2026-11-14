@@ -2,8 +2,8 @@
 param(
     [Parameter(Mandatory)][string]$PrivateKeyPath,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$SourceCommit,
-    [string]$Version = '1.4.2',
-    [int]$VersionCode = 16,
+    [string]$Version = '1.4.4',
+    [int]$VersionCode = 18,
     [string]$AndroidVersion,
     [int]$AndroidVersionCode,
     [string]$ReleaseNotes = 'Khoa/mo khoa may va anh/video quang cao rieng cho tung phong, luu tren D: khong can mo dong bang C:.'
@@ -36,8 +36,8 @@ $payload = [ordered]@{
         agent = Artifact 'client/StandaloneAgent.ps1'
         core = Artifact 'client/Install-Core.ps1'
         updater = Artifact 'client/Update-Agent.ps1'
-        runtime = Artifact 'release/RoomTN20.Runtime-1.4.2.dll'
-        player = Artifact 'release/RoomTN20.Player-1.4.2.exe'
+        runtime = Artifact 'release/RoomTN20.Runtime-1.4.4.dll'
+        player = Artifact 'release/RoomTN20.Player-1.4.4.exe'
         setup = Artifact "release/RoomTN20-ClientSetup-$Version.exe"
     }
     releaseNotes = $ReleaseNotes

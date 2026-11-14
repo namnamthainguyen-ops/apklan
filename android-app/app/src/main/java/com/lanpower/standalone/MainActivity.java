@@ -203,7 +203,11 @@ public final class MainActivity extends Activity {
         addButton = button("+ Thêm phòng", BLUE, R.id.add_room);
         addButton.setOnClickListener(view -> addRoom());
         refreshButton = button("Quét LAN", GREEN, R.id.refresh);
-        refreshButton.setOnClickListener(view -> refresh());
+        refreshButton.setOnClickListener(view -> {
+            String[] modes = {"Quét nhanh", "Tìm máy mới"};
+            showPrompt(new AlertDialog.Builder(this).setTitle("Quét LAN")
+                    .setItems(modes, (dialog, index) -> refresh(index == 0)).create());
+        });
         navigation.addView(backButton, weighted());
         navigation.addView(addButton, weighted());
         navigation.addView(refreshButton, weighted());
@@ -406,6 +410,8 @@ public final class MainActivity extends Activity {
                 + "\nMàn hình: " + device.lockDescription() + "\nQuảng cáo phòng: " + mediaStatus(room, device)
                 + "\nCập nhật Windows: " + (device.updateAuthenticated ? "Mã " + device.clientVersionCode + " • Mới nhất " + device.latestVersion + " • " + device.updateStatus + "\n" + device.updateMessage : "Chưa có thông tin đã xác thực"), 15, NAVY), matchWrap());
         content.addView(info);
+        String desktopStatus = room.scanError.isEmpty() ? device.desktopBlockReason() : "Cần quét lại máy";
+        content.addView(note("Mở website / Đóng ứng dụng: " + (desktopStatus.isEmpty() ? "Phiên Windows sẵn sàng" : desktopStatus)));
         if (!device.supportsUwf()) content.addView(note("Chưa xác thực được UWF. Bộ cài client mới tự chuẩn bị UWF: cài hoặc cập nhật client rồi khởi động lại nếu được yêu cầu. Windows Home/Pro không hỗ trợ tính năng này."));
         content.addView(note("Đóng/bỏ đóng băng C: đặt trạng thái cho lần khởi động tiếp theo; app không tự khởi động lại máy. Xem Current/Next sau khi quét rồi tự chọn Khởi động lại khi sẵn sàng."));
         addActionButtons(content, room, device);
@@ -474,7 +480,6 @@ public final class MainActivity extends Activity {
             dialog.dismiss();
             setBusy(true, "Đang gửi yêu cầu…");
             executor.execute(() -> {
-                List<String> results = new ArrayList<>();
                 Map<String, ManagedDevice> fresh = new LinkedHashMap<>();
                 String scanFailure = "";
                 try {
@@ -482,24 +487,43 @@ public final class MainActivity extends Activity {
                     for (ManagedDevice target : targets) addresses.add(target.ip);
                     for (ManagedDevice device : transport.discover(room.key, new ArrayList<>(addresses))) fresh.put(device.listKey(), device);
                 } catch (Exception error) { scanFailure = readable(error); }
-                for (ManagedDevice selectedDevice : targets) {
-                    ManagedDevice target = fresh.get(selectedDevice.listKey());
-                    String result;
-                    if (target == null) result = scanFailure.isEmpty() ? "Máy không trả lời khi xác minh lại" : scanFailure;
-                    else if (!target.supports("desktopactions")) {
-                        if (target.updateAuthenticated && target.clientVersionCode < 16) result = "Cần client Windows 1.4.2 trở lên";
-                        else if (target.runtimeAuthenticated && !"ready".equals(target.runtimeStatus))
-                            result = "Bộ điều khiển phiên Windows chưa sẵn sàng: " + target.runtimeMessage;
-                        else result = "Máy chưa xác nhận hỗ trợ điều khiển phiên Windows";
+
+                final String scanError = scanFailure;
+                java.util.concurrent.ExecutorService workers = java.util.concurrent.Executors.newFixedThreadPool(Math.min(4, targets.size()));
+                java.util.concurrent.CompletionService<String> tasks = new java.util.concurrent.ExecutorCompletionService<>(workers);
+                List<String> results = new ArrayList<>();
+                String action = openWeb ? "open-web" : "close-apps";
+                try {
+                    for (ManagedDevice selectedDevice : targets) tasks.submit(() -> {
+                        ManagedDevice target = fresh.get(selectedDevice.listKey());
+                        String result = target == null
+                                ? (scanError.isEmpty() ? "Máy không trả lời khi xác minh lại" : scanError)
+                                : target.desktopBlockReason();
+                        if (target != null && result.isEmpty()) {
+                            try { result = transport.desktop(room.key, target, action, value); }
+                            catch (Exception error) { result = readable(error); }
+                        }
+                        return selectedDevice.hostname + " (" + selectedDevice.ip + ") • " + result;
+                    });
+                    for (int i = 0; i < targets.size(); i++) {
+                        String result = tasks.take().get();
+                        results.add(result);
+                        int count = results.size();
+                        postResult(() -> status.setText(count + "/" + targets.size() + " • " + result));
                     }
-                    else {
-                        try { result = transport.desktop(room.key, target, openWeb ? "open-web" : "close-apps", value); }
-                        catch (Exception error) { result = readable(error); }
-                    }
-                    results.add(selectedDevice.hostname + " • " + result);
-                }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    results.add("Đã dừng chờ phản hồi");
+                } catch (java.util.concurrent.ExecutionException error) {
+                    results.add(readable(error));
+                } finally { workers.shutdownNow(); }
                 postResult(() -> {
-                    setBusy(false, "Đã gửi yêu cầu");
+                    for (ManagedDevice device : fresh.values())
+                        if (room.devices.containsKey(device.listKey())) {
+                            device.lastSeen = System.currentTimeMillis();
+                            room.devices.put(device.listKey(), device);
+                        }
+                    setBusy(false, "Đã xử lý yêu cầu");
                     showPrompt(new AlertDialog.Builder(this).setTitle("Kết quả từng máy")
                             .setMessage(String.join("\n", results)).setPositiveButton("Đóng", null).create());
                 });
@@ -688,7 +712,9 @@ public final class MainActivity extends Activity {
     private boolean scanRenderScheduled;
     private final Set<String> scanningRooms = new LinkedHashSet<>();
 
-    private void refresh() {
+    private void refresh() { refresh(false); }
+
+    private void refresh(boolean quick) {
         if (busy || destroyed || rooms.isEmpty()) return;
         List<RoomModel> targets = new ArrayList<>();
         RoomModel current = rooms.get(roomId);
@@ -714,7 +740,10 @@ public final class MainActivity extends Activity {
                     if (destroyed) return;
                     try {
                         if (room.key.isEmpty()) throw new IllegalStateException("Không đọc được khóa mã hóa của phòng");
-                        found.put(room.id, transport.discover(room.key, scanTargets(room), knownAddresses.get(room.id), device -> postResult(() -> {
+                        List<String> known = knownAddresses.get(room.id);
+                        boolean quickRoom = quick && !known.isEmpty();
+                        List<String> addresses = quickRoom ? known : scanTargets(room);
+                        found.put(room.id, transport.discover(room.key, addresses, known, device -> postResult(() -> {
                             device.lastSeen = System.currentTimeMillis();
                             room.devices.put(device.listKey(), device.copy());
                             if (!scanRenderScheduled) {
@@ -724,7 +753,7 @@ public final class MainActivity extends Activity {
                                     if (!destroyed && !scanningRooms.isEmpty()) render();
                                 }, 150);
                             }
-                        })));
+                        }), quickRoom));
                         List<ManagedDevice> completed = found.get(room.id);
                         postResult(() -> {
                             scanningRooms.remove(room.id);
