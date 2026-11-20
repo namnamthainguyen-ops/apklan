@@ -42,3 +42,9 @@ JVM tests kiểm tra các vector KDF/HMAC độc lập, ràng buộc chữ ký/r
 - Máy được đánh dấu offline sau hai lượt quét thành công liên tiếp mà máy không trả lời. App giữ lần cuối thấy và báo lỗi quét riêng.
 - Sau khi gửi lệnh khởi động lại, app theo dõi tối đa 5 phút khi còn mở. Client Windows 1.4.5 trở lên gửi thời điểm khởi động đã xác thực để app xác nhận máy đã khởi động lại và online.
 - Nếu hai máy trả lời với cùng ID nhưng khác MAC, app hiện cảnh báo trùng ID. Client Windows tính ID từ phần cứng khi khởi chạy, nên có thể giữ cấu hình phòng và nội dung quảng cáo trong ảnh ghost.
+
+## Danh sách máy và thao tác nhóm
+
+APK 1.5.2 chỉ hiển thị tên và IP trong danh sách, chia Online phía trên và Offline phía dưới. Mỗi nhóm có ô chọn tất cả riêng. Bỏ chọn một nhóm giữ lựa chọn của nhóm còn lại. Chạm máy để xem UWF, phiên bản, quảng cáo và thao tác.
+
+Nút Đóng tất cả ứng dụng gửi yêu cầu đóng các cửa sổ ứng dụng trong phiên Windows hiện tại. Client báo số cửa sổ đã gửi yêu cầu và số cửa sổ còn mở, bao gồm ứng dụng đang chờ lưu dữ liệu. Dịch vụ Windows, Explorer và ứng dụng chỉ chạy nền tiếp tục chạy.

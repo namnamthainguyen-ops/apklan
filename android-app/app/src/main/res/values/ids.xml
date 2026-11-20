@@ -25,4 +25,5 @@
     <item name="action_restart" type="id" />
     <item name="action_freeze" type="id" />
     <item name="action_unfreeze" type="id" />
+    <item name="select_offline" type="id" />
 </resources>

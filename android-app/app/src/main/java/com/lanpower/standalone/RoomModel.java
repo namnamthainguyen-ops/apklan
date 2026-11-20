@@ -150,6 +150,8 @@ final class ManagedDevice {
             case "locked": return "Màn hình đang khóa";
             case "signed-out": return "Chưa đăng nhập Windows";
             case "pending": return "Đang chờ xác nhận trạng thái màn hình";
+            case "ui-offline":
+                return updateAuthenticated && clientVersionCode >= 21 ? "" : "Phiên Windows chưa sẵn sàng. Đăng nhập và quét lại.";
             default: return "Phiên Windows chưa sẵn sàng. Kiểm tra máy đã đăng nhập.";
         }
     }

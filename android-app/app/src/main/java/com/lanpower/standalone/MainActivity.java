@@ -89,7 +89,7 @@ public final class MainActivity extends Activity {
     private boolean loadFailed;
     private boolean updatingAll;
     private int openPrompts;
-    private CheckBox selectAllBox;
+    private final Map<Boolean, CheckBox> groupSelection = new LinkedHashMap<>();
     private volatile boolean destroyed;
 
     private final Runnable autoRefresh = new Runnable() {
@@ -287,7 +287,7 @@ public final class MainActivity extends Activity {
         content.removeAllViews();
         selectionButtons.clear();
         selectionSummary = null;
-        selectAllBox = null;
+        groupSelection.clear();
         RoomModel room = rooms.get(roomId);
         if (room == null) { roomId = null; deviceId = null; showingMedia = false; }
         ManagedDevice device = room == null ? null : room.devices.get(deviceId);
@@ -351,19 +351,6 @@ public final class MainActivity extends Activity {
         addActionButtons(content, room, null);
 
         if (!room.scanError.isEmpty()) content.addView(note("Lần quét thất bại, trạng thái hiện tại chưa xác định: " + room.scanError));
-        CheckBox all = new CheckBox(this);
-        selectAllBox = all;
-        all.setId(R.id.select_all);
-        all.setText("Chọn tất cả");
-        all.setEnabled(!busy && !room.devices.isEmpty());
-        all.setChecked(!room.devices.isEmpty() && selected.containsAll(room.devices.keySet()));
-        all.setOnCheckedChangeListener((view, checked) -> {
-            if (updatingAll) return;
-            selected.clear();
-            if (checked) selected.addAll(room.devices.keySet());
-            render();
-        });
-        content.addView(all, matchWrap());
         selectionSummary = text("Đã chọn " + selected.size() + " máy", 13, NAVY);
         content.addView(selectionSummary, matchWrap());
 
@@ -375,7 +362,21 @@ public final class MainActivity extends Activity {
             int count = 0;
             for (ManagedDevice device : ordered) if (device.online == online) count++;
             if (count == 0) continue;
-            TextView group = text((online ? "●  Online · " : "●  Offline · ") + count, 16, online ? GREEN : Color.DKGRAY);
+            CheckBox group = new CheckBox(this);
+            group.setId(online ? R.id.select_all : R.id.select_offline);
+            group.setText((online ? "Chọn tất cả Online · " : "Chọn tất cả Offline · ") + count);
+            group.setTextColor(online ? GREEN : Color.DKGRAY);
+            group.setTextSize(15);
+            Set<String> groupIds = new LinkedHashSet<>();
+            for (ManagedDevice device : ordered) if (device.online == online) groupIds.add(device.listKey());
+            group.setChecked(selected.containsAll(groupIds));
+            group.setEnabled(!busy);
+            groupSelection.put(online, group);
+            group.setOnCheckedChangeListener((view, checked) -> {
+                if (updatingAll) return;
+                if (checked) selected.addAll(groupIds); else selected.removeAll(groupIds);
+                render();
+            });
             group.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
             group.setPadding(dp(12), dp(10), dp(12), dp(10));
             GradientDrawable background = new GradientDrawable();
@@ -618,13 +619,18 @@ public final class MainActivity extends Activity {
         if (selectionSummary != null) selectionSummary.setText("Đã chọn " + selected.size() + " máy");
         for (Button button : selectionButtons) button.setEnabled(!busy && !selected.isEmpty());
         RoomModel room = rooms.get(roomId);
-        if (selectAllBox != null && room != null) {
+        if (room != null) {
             updatingAll = true;
-            selectAllBox.setChecked(!room.devices.isEmpty() && selected.containsAll(room.devices.keySet()));
-            updatingAll = false;
+            try {
+                for (Map.Entry<Boolean, CheckBox> entry : groupSelection.entrySet()) {
+                    Set<String> ids = new LinkedHashSet<>();
+                    for (ManagedDevice device : room.devices.values())
+                        if (device.online == entry.getKey()) ids.add(device.listKey());
+                    entry.getValue().setChecked(!ids.isEmpty() && selected.containsAll(ids));
+                }
+            } finally { updatingAll = false; }
         }
     }
-
     private void confirmAction(RoomModel room, List<ManagedDevice> targets, String action) {
         if (busy || targets.isEmpty()) return;
         String explanation = "wake".equals(action) ? "Magic Packet chỉ gửi yêu cầu bật; cần quét lại để xác nhận. Qua VPN cần ít nhất một máy relay đang online trong LAN đích hoặc router hỗ trợ WOL."

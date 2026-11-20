@@ -281,7 +281,7 @@ def verify_directed_vpn():
     wait_text("Các phòng")
     open_room(ROOM_A)
     refresh()
-    wait_text("2 online")
+    wait_text("Chọn tất cả Online · 2")
     assert control()["discoveryByRoom"].get("A", 0) > before, "Configured VPN target did not receive authenticated directed discovery"
     room = next(room for room in saved_rooms() if room["name"] == ROOM_A)
     assert {device["hostname"] for device in room["devices"]} == {"CI-A-01", "CI-A-02"}, "VPN discovery crossed room keys"
@@ -293,7 +293,7 @@ def verify_directed_vpn():
     bulk("shutdown", {target_id})
     refresh()
     scroll_top()
-    wait_text("1 online")
+    wait_text("Chọn tất cả Online · 1")
     start = len(control()["events"])
     tap(by_id("action_wake"), lambda tree: has_button(tree, "Thực hiện"))
     tap_text("Thực hiện", lambda tree: not has_button(tree, "Thực hiện"))
@@ -301,7 +301,7 @@ def verify_directed_vpn():
     close_result()
     refresh()
     scroll_top()
-    wait_text("2 online")
+    wait_text("Chọn tất cả Online · 2")
     print("ANDROID_VPN_RELAY=PASS (signed relay through online same-room peer, target MAC bound, no fixture-route shortcut)")
     home()
     print("ANDROID_VPN_DISCOVERY=PASS (persisted private-IP target, no emulator fixture route, authenticated room isolation)")
@@ -330,7 +330,7 @@ def detail_action_ids():
 def open_room(name):
     wait_idle()
     tap(lambda node: node.get("content-desc") == "room:" + name,
-        lambda tree: has_id(tree, "select_all") and any(node.attrib.get("text") == name for node in tree.iter("node")))
+        lambda tree: (has_id(tree, "select_all") or has_id(tree, "select_offline")) and any(node.attrib.get("text") == name for node in tree.iter("node")))
     wait_idle()
 
 
@@ -427,11 +427,11 @@ assert_update_menu()
 if "--existing-key" in sys.argv:
     open_room("Phòng cũ")
     assert visible_devices() == {"CI-L-04"}, "Saved legacy PC was not migrated while offline"
-    wait_text("1 offline")
+    wait_text("Chọn tất cả Offline · 1")
     control("/set", {"devices": {"00000000-0000-4000-8000-000000000004": {"online": True}}})
     refresh()
     assert visible_devices() == {"CI-L-04"}, "Migrated encrypted key failed authenticated discovery"
-    wait_text("1 online")
+    wait_text("Chọn tất cả Online · 1")
     home()
 
 add_room(ROOM_A, "RoomA123")
@@ -458,7 +458,7 @@ for action in ["wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unl
     assert "action_" + action in action_ids, f"Missing detail action: {action}"
 tap(by_id("back"))
 scroll_top()
-wait_for(lambda tree: has_id(tree, "select_all"), "Quay lại did not restore the room")
+wait_for(lambda tree: (has_id(tree, "select_all") or has_id(tree, "select_offline")), "Quay lại did not restore the room")
 wait_idle()
 
 single_selection = lambda node: by_id("device_select")(node) and node.get("content-desc") == "Chọn CI-A-01"
@@ -485,12 +485,12 @@ bulk("restart")
 bulk("shutdown")
 refresh()
 refresh()
-wait_text("2 offline")
+wait_text("Chọn tất cả Offline · 2")
 assert visible_devices() == {"CI-A-01", "CI-A-02"}, "Offline computers disappeared from saved room"
 bulk("wake")
 refresh()
 scroll_top()
-wait_text("2 online")
+wait_text("Chọn tất cả Online · 2")
 home()
 
 open_room(ROOM_B)
@@ -510,11 +510,31 @@ for name, expected in [(ROOM_A, {"CI-A-01", "CI-A-02"}), (ROOM_B, {"CI-B-03"})]:
     open_room(name)
     assert visible_devices() == expected, "Saved room device identities were lost after restart"
     if name == ROOM_A:
-        wait_text("2 offline")
+        wait_text("Chọn tất cả Offline · 2")
         control("/set", {"devices": {device_id: {"online": True} for device_id in IDS_A}})
     refresh()
     assert visible_devices() == expected, "Stored encrypted room key failed discovery after restart"
-    wait_text(f"{len(expected)} online")
+    wait_text(f"Chọn tất cả Online · {len(expected)}")
     home()
+open_room(ROOM_A)
+second = sorted(IDS_A)[1]
+control("/set", {"devices": {second: {"online": False}}})
+refresh()
+refresh()
+wait_text("Chọn tất cả Offline · 1")
+tap(by_id("select_all"), lambda tree: any(
+    by_id("select_all")(n.attrib) and n.get("checked") == "true" for n in tree.iter("node")))
+tap(by_id("select_offline"), lambda tree: any(
+    by_id("select_offline")(n.attrib) and n.get("checked") == "true" for n in tree.iter("node")))
+tap(by_id("select_all"), lambda tree: any(
+    by_id("select_all")(n.attrib) and n.get("checked") == "false" for n in tree.iter("node")))
+tree = ui()
+assert any(by_id("select_offline")(n.attrib) and n.get("checked") == "true"
+           for n in tree.iter("node")), "Online deselection changed Offline selection"
+tap(by_id("select_offline"), lambda tree: any(
+    by_id("select_offline")(n.attrib) and n.get("checked") == "false" for n in tree.iter("node")))
+control("/set", {"devices": {second: {"online": True}}})
+refresh()
+home()
 verify_directed_vpn()
 print("ANDROID_UI_SMOKE_TEST=PASS (multiple rooms, 8-character keys, real UDP isolation, online/offline, details, bulk UWF/power/WOL, encrypted persistence)")
