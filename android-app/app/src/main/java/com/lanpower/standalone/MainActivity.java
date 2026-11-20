@@ -347,7 +347,7 @@ public final class MainActivity extends Activity {
 
     private void renderRoom(RoomModel room) {
         selected.retainAll(room.devices.keySet());
-        content.addView(text(roomCounts(room), 16, NAVY), matchWrap());
+        addActionButtons(content, room, null);
 
         if (!room.scanError.isEmpty()) content.addView(note("Lần quét thất bại, trạng thái hiện tại chưa xác định: " + room.scanError));
         CheckBox all = new CheckBox(this);
@@ -365,9 +365,25 @@ public final class MainActivity extends Activity {
         content.addView(all, matchWrap());
         selectionSummary = text("Đã chọn " + selected.size() + " máy", 13, NAVY);
         content.addView(selectionSummary, matchWrap());
-        addActionButtons(content, room, null);
+
         if (room.devices.isEmpty()) content.addView(note("Chưa có máy được lưu trong phòng. Bật máy, cài agent với cùng khóa phòng rồi chọn Quét LAN."));
-        for (ManagedDevice device : room.devices.values()) content.addView(deviceCard(room, device));
+        List<ManagedDevice> ordered = new ArrayList<>(room.devices.values());
+        ordered.sort(java.util.Comparator.comparing((ManagedDevice device) -> device.hostname, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(device -> device.listKey()));
+        for (boolean online : new boolean[]{true, false}) {
+            int count = 0;
+            for (ManagedDevice device : ordered) if (device.online == online) count++;
+            if (count == 0) continue;
+            TextView group = text((online ? "●  Online · " : "●  Offline · ") + count, 16, online ? GREEN : Color.DKGRAY);
+            group.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            group.setPadding(dp(12), dp(10), dp(12), dp(10));
+            GradientDrawable background = new GradientDrawable();
+            background.setColor(online ? Color.rgb(219, 247, 231) : Color.rgb(235, 238, 243));
+            background.setCornerRadius(dp(10));
+            group.setBackground(background);
+            content.addView(group, matchWrap());
+            for (ManagedDevice device : ordered) if (device.online == online) content.addView(deviceCard(room, device));
+        }
     }
 
     private View deviceCard(RoomModel room, ManagedDevice device) {
@@ -385,32 +401,49 @@ public final class MainActivity extends Activity {
             updateSelection();
         });
         heading.addView(check);
-        TextView name = text(device.hostname, 18, NAVY);
+        LinearLayout identity = column();
+        TextView name = text(device.hostname, 17, device.online ? NAVY : Color.DKGRAY);
         name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        heading.addView(name, weighted());
-        heading.addView(text(presence(room, device), 12, room.scanError.isEmpty() && device.online ? GREEN : RED));
+        TextView address = text(device.ip, 14, Color.DKGRAY);
+        identity.addView(name);
+        identity.addView(address);
+        heading.addView(identity, weighted());
+        heading.addView(text("›", 26, Color.GRAY));
         card.addView(heading, matchWrap());
-        if (device.lastSeen > 0) card.addView(note("Lần cuối thấy: " + DateFormat.getDateTimeInstance().format(new Date(device.lastSeen))));
-        if (room.duplicateId(device)) card.addView(note("Trùng ID client với máy khác. Kiểm tra ảnh ghost và cấu hình phần cứng."));
-        if (room.restartChecks.containsKey(device.listKey())) card.addView(note(room.restartChecks.get(device.listKey()).message));
-        card.addView(text(device.ip + "  •  " + device.mac + "\nUWF C: " + device.uwfDescription()
-                + "\nMàn hình: " + device.lockDescription() + "\nQuảng cáo: " + mediaStatus(room, device), 13, Color.DKGRAY), matchWrap());
-        card.addView(text("Chạm để xem chi tiết và thao tác", 12, BLUE), matchWrap());
         View.OnClickListener open = view -> {
             if (!busy) { deviceId = device.listKey(); render(); }
         };
         card.setOnClickListener(open);
         name.setOnClickListener(open);
+        identity.setOnClickListener(open);
+        address.setOnClickListener(open);
         return card;
     }
 
+    private void detailField(LinearLayout parent, String label, String value) {
+        LinearLayout line = row();
+        line.setPadding(dp(2), dp(12), dp(2), dp(12));
+        line.addView(text(label, 14, Color.DKGRAY), weighted());
+        TextView detail = text(value, 14, NAVY);
+        detail.setGravity(Gravity.END);
+        detail.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        line.addView(detail, weighted());
+        parent.addView(line, matchWrap());
+        View divider = new View(this);
+        divider.setBackgroundColor(Color.rgb(226, 232, 239));
+        parent.addView(divider, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
+    }
     private void renderDetail(RoomModel room, ManagedDevice device) {
         LinearLayout info = card();
-        info.addView(text("Hostname: " + device.hostname + "\nIP: " + device.ip + "\nMAC: " + device.mac + "\nTrạng thái: " + presence(room, device)
-                + "\nPhản hồi gần nhất: " + (device.lastSeen == 0 ? "Chưa biết" : DateFormat.getDateTimeInstance().format(new Date(device.lastSeen)))
-                + "\nUWF ổ C: " + device.uwfDescription() + "\nAgent: " + (device.stateAuthenticated ? device.agentVersion : "Bản cũ / chưa xác thực trạng thái")
-                + "\nMàn hình: " + device.lockDescription() + "\nQuảng cáo phòng: " + mediaStatus(room, device)
-                + "\nCập nhật Windows: " + (device.updateAuthenticated ? "Mã " + device.clientVersionCode + " • Mới nhất " + device.latestVersion + " • " + device.updateStatus + "\n" + device.updateMessage : "Chưa có thông tin đã xác thực"), 15, NAVY), matchWrap());
+        detailField(info, "Trạng thái", presence(room, device));
+        detailField(info, "Địa chỉ IP", device.ip);
+        detailField(info, "Địa chỉ MAC", device.mac);
+        detailField(info, "Lần thấy cuối", device.lastSeen == 0 ? "Chưa biết" : DateFormat.getDateTimeInstance().format(new Date(device.lastSeen)));
+        detailField(info, "UWF ổ C", device.uwfDescription());
+        detailField(info, "Phiên bản client", device.stateAuthenticated ? device.agentVersion : "Chưa xác thực");
+        detailField(info, "Cập nhật", device.updateAuthenticated ? device.latestVersion + " • " + device.updateStatus : "Chưa xác thực");
+        detailField(info, "Quảng cáo", mediaStatus(room, device));
+        detailField(info, "Màn hình", device.lockDescription());
         content.addView(info);
         if (device.supports("pilotupdate")) content.addView(note("Nhóm cập nhật thử"));
         if (device.updateAuthenticated && "blocked-uwf".equals(device.updateStatus)) content.addView(note("Cập nhật đang chờ mở UWF ổ C:"));
@@ -425,7 +458,37 @@ public final class MainActivity extends Activity {
     }
 
     private void addActionButtons(LinearLayout parent, RoomModel room, ManagedDevice oneDevice) {
-        String[] actions = {"wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock"};
+        if (oneDevice != null) {
+            String[] commands = {"wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock", "open-web", "close-apps"};
+            String[] labels = {"⏻\nBật máy", "⏻\nTắt máy", "⟳\nKhởi động lại", "❄\nĐóng băng C:", "♧\nBỏ đóng băng C:", "♙\nKhóa màn hình", "♙\nMở màn hình", "◎\nMở website", "×\nĐóng ứng dụng"};
+            int[] actionIds = {R.id.action_wake, R.id.action_shutdown, R.id.action_restart, R.id.action_freeze, R.id.action_unfreeze, R.id.action_lock, R.id.action_unlock, View.NO_ID, View.NO_ID};
+            for (int offset = 0; offset < commands.length; offset += 4) {
+                LinearLayout line = row();
+                for (int cell = 0; cell < 4; cell++) {
+                    int index = offset + cell;
+                    if (index >= commands.length) { line.addView(new View(this), weighted()); continue; }
+                    String command = commands[index];
+                    Button action = button(labels[index], BLUE, actionIds[index]);
+                    action.setTextSize(12);
+                    action.setMinHeight(dp(84));
+                    action.setTextColor(index == 0 ? GREEN : index == 1 ? RED : BLUE);
+                    GradientDrawable tile = new GradientDrawable();
+                    tile.setColor(Color.WHITE);
+                    tile.setCornerRadius(dp(10));
+                    tile.setStroke(dp(1), Color.rgb(218, 226, 235));
+                    action.setBackground(tile);
+                    action.setEnabled(!busy && ("wake".equals(command) || oneDevice.online && room.scanError.isEmpty()));
+                    action.setOnClickListener(view -> {
+                        List<ManagedDevice> target = Collections.singletonList(oneDevice.copy());
+                        if ("open-web".equals(command) || "close-apps".equals(command)) desktopPrompt(room, target, "open-web".equals(command));
+                        else confirmAction(room, target, command);
+                    });
+                    line.addView(action, weighted());
+                }
+                parent.addView(line, matchWrap());
+            }
+            return;
+        }        String[] actions = {"wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock"};
         int[] ids = {R.id.action_wake, R.id.action_shutdown, R.id.action_restart, R.id.action_freeze, R.id.action_unfreeze, R.id.action_lock, R.id.action_unlock};
         int[] colors = {GREEN, RED, AMBER, BLUE, NAVY, RED, GREEN};
         LinearLayout first = row();

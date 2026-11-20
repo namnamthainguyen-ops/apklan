@@ -1,4 +1,4 @@
-# Room TN20 — Windows 1.4.6 / Android 1.4.9
+# Room TN20 — Windows 1.4.6 / Android 1.5.0
 
 [![Verify Room TN20](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml/badge.svg)](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml)
 
@@ -38,7 +38,7 @@ Cài client **1.4.0** trên máy mẫu, nhập key phòng, cấu hình VPN nếu
 ## Tải về
 
 - **[Tải bộ cài client Windows 1.4.6 — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.6.exe)** — nhập key phòng rồi chọn **Cài / Cài đè**; chứa sẵn phần khóa/quảng cáo và tự chuẩn bị UWF khi được hỗ trợ.
-- **[Tải APK Room TN20 1.4.9](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.4.9.apk)** — Android 8.0 trở lên, cùng chữ ký để nâng cấp và giữ dữ liệu phòng.
+- **[Tải APK Room TN20 1.5.0](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.5.0.apk)** — Android 8.0 trở lên, cùng chữ ký để nâng cấp và giữ dữ liệu phòng.
 - [Tải toàn bộ mã nguồn và bộ cài Windows ZIP](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip).
 - [Xem script cài Windows online](https://github.com/namnamthainguyen-ops/apklan/blob/main/install-online.ps1).
 - [Xem kết quả kiểm thử trên GitHub](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml).
@@ -101,7 +101,7 @@ Bộ cài tự chuẩn bị Windows Feature UWF trên Windows IoT Enterprise, kh
 
 ### Bước 3 — Cài APK và quản lý máy
 
-1. [Tải APK Room TN20 1.4.9 trên điện thoại](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.4.9.apk), cho phép trình duyệt hoặc trình quản lý tệp cài ứng dụng từ nguồn này khi Android yêu cầu. Nếu Play Protect đề nghị quét, chọn quét và đợi kết quả.
+1. [Tải APK Room TN20 1.5.0 trên điện thoại](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.5.0.apk), cho phép trình duyệt hoặc trình quản lý tệp cài ứng dụng từ nguồn này khi Android yêu cầu. Nếu Play Protect đề nghị quét, chọn quét và đợi kết quả.
 2. Mở **Room TN20**, thêm phòng, đặt tên phòng và nhập đúng key 8 ký tự đã cài trên các máy.
 3. Mở phòng, chọn **Quét mạng LAN**. Máy dùng đúng key sẽ được đưa vào danh sách phòng; app lưu lại tên, IP và MAC để tiếp tục hiển thị khi máy offline.
 4. Chạm một máy để xem chi tiết và dùng **Bật**, **Tắt**, **Restart**, **Khóa**, **Mở khóa**, **Đóng băng C:** hoặc **Mở đóng băng C:**.
@@ -218,10 +218,10 @@ Script sẽ:
 
 Cài APK lên điện thoại Android 8.0 trở lên. Mở Room TN20, thêm phòng bằng tên và key 8 ký tự rồi chọn `Quét LAN`.
 
-APK phát hành trong repository: `release/RoomTN20-1.4.9.apk`, `debuggable=false`. Giữ cùng chứng thư cũ để cài nâng cấp và giữ dữ liệu; tên chứng thư vẫn là Android Debug do tương thích với các bản đã cài. Đây chưa phải bản phân phối qua Google Play. Giao diện dùng vùng an toàn status bar/tai thỏ và thanh điều hướng, không đè lên giờ/thông báo của điện thoại.
+APK phát hành trong repository: `release/RoomTN20-1.5.0.apk`, `debuggable=false`. Giữ cùng chứng thư cũ để cài nâng cấp và giữ dữ liệu; tên chứng thư vẫn là Android Debug do tương thích với các bản đã cài. Đây chưa phải bản phân phối qua Google Play. Giao diện dùng vùng an toàn status bar/tai thỏ và thanh điều hướng, không đè lên giờ/thông báo của điện thoại.
 
 ```text
-APK SHA-256: 24919FAF0EF6C76F43FBD804D6BC3E0EC7E7B8863908CF56F088CB799B0CDD44
+APK SHA-256: A0E1D64CAD9FAA08095279012B9B24C50A6277BF845D2DE37DFF615BB18D3ED4
 ```
 
 Để tự tìm bằng broadcast, điện thoại và t540 cần cùng broadcast domain, Wi-Fi không bật AP/client isolation. Nếu khác VLAN hoặc kết nối VPN, cấu hình IP/dải mạng trực tiếp trong mục **Mạng LAN/VPN** của phòng và cho phép định tuyến/firewall tương ứng.

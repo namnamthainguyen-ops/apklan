@@ -451,16 +451,11 @@ with open("emulator-evidence/room-tools.png", "wb") as picture:
     subprocess.run(["adb", "exec-out", "screencap", "-p"], stdout=picture, check=True, timeout=30)
 
 tap(lambda node: node.get("content-desc") == "device:CI-A-01",
-    lambda tree: any(node.attrib.get("text", "").startswith("Hostname: CI-A-01") for node in tree.iter("node")))
-tree = wait_text("Hostname: CI-A-01")
+    lambda tree: any(node.attrib.get("text") == "Địa chỉ MAC" for node in tree.iter("node")))
+tree = wait_text("Địa chỉ MAC")
 action_ids = detail_action_ids()
-for action in ["wake", "shutdown", "restart"]:
+for action in ["wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock"]:
     assert "action_" + action in action_ids, f"Missing detail action: {action}"
-extra_labels = {"Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình",
-                "Mở website", "Đóng ứng dụng đang mở"}
-tap_text("Thao tác khác", lambda tree: extra_labels <= {n.get("text") for n in tree.iter("node")})
-tap_text("Đóng", lambda tree: has_id(tree, "back") and not any(
-    node.get("text") == "Đóng" for node in tree.iter("node")))
 tap(by_id("back"))
 scroll_top()
 wait_for(lambda tree: has_id(tree, "select_all"), "Quay lại did not restore the room")
