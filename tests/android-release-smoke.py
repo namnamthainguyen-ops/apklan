@@ -13,7 +13,7 @@ def refresh():
     wait_idle()
     before = control()["discoveryPackets"]
     tap(by_id("refresh"), lambda tree: any(n.get("text") == "Tìm máy mới" for n in tree.iter("node")))
-    tap_text("Tìm máy mới", lambda _tree: control()["discoveryPackets"] > before)
+    tap_text("Tìm máy mới", lambda tree: not any(n.get("text") == "Tìm máy mới" for n in tree.iter("node")) and control()["discoveryPackets"] > before)
     wait_idle()
 
 
