@@ -15,7 +15,7 @@ Set-StrictMode -Version Latest
 $AgentUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/StandaloneAgent.ps1'
 $AgentSha256 = 'D15DB76A3EECE836A8DFD1F52DD9667FF2658247CD1E1E86614A24F351B54505'
 $CoreUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Install-Core.ps1'
-$CoreSha256 = '6913E55DED9950151CF76BEF1553994615F2E4CA92142C9483241E306A1B7E76'
+$CoreSha256 = '1CB60628CBA1E1724ED22AF2FCA1617DC18363EE25B44ADB014D914239BA9325'
 $UpdaterUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Update-Agent.ps1'
 $UpdaterSha256 = 'FE89CFE91F5D3DDE9862929C4D8B49201D23955A57C39564553E903838A9BD80'
 $PublicKeyUrl = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/client/Update-PublicKey.xml'
