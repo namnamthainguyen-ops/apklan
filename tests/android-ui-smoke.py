@@ -330,7 +330,7 @@ def detail_action_ids():
 def open_room(name):
     wait_idle()
     tap(lambda node: node.get("content-desc") == "room:" + name,
-        lambda tree: (has_id(tree, "select_all") or has_id(tree, "select_offline")) and any(node.attrib.get("text") == name for node in tree.iter("node")))
+        lambda tree: has_id(tree, "network_settings") and any(node.attrib.get("text") == name for node in tree.iter("node")))
     wait_idle()
 
 

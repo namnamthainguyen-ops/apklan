@@ -1246,7 +1246,7 @@ public final class MainActivity extends Activity {
 
     private int iconFor(String label) {
         switch (label) {
-            case "Bật máy": case "Tắt máy": return R.drawable.ic_ui_power;
+            case "Bật": case "Tắt": case "Bật máy": case "Tắt máy": return R.drawable.ic_ui_power;
             case "Khởi động lại": case "Cập nhật": return R.drawable.ic_ui_restart;
             case "Đóng băng C:": case "UWF ổ C": return R.drawable.ic_ui_freeze;
             case "Bỏ đóng băng C:": return R.drawable.ic_ui_thaw;

@@ -45,6 +45,6 @@ JVM tests kiểm tra các vector KDF/HMAC độc lập, ràng buộc chữ ký/r
 
 ## Danh sách máy và thao tác nhóm
 
-APK 1.5.2 chỉ hiển thị tên và IP trong danh sách, chia Online phía trên và Offline phía dưới. Mỗi nhóm có ô chọn tất cả riêng. Bỏ chọn một nhóm giữ lựa chọn của nhóm còn lại. Chạm máy để xem UWF, phiên bản, quảng cáo và thao tác.
+APK 1.5.3 chỉ hiển thị tên và IP trong danh sách, chia Online phía trên và Offline phía dưới. Mỗi nhóm có ô chọn tất cả riêng. Bỏ chọn một nhóm giữ lựa chọn của nhóm còn lại. Chạm máy để xem UWF, phiên bản, quảng cáo và thao tác.
 
 Nút Đóng tất cả ứng dụng gửi yêu cầu đóng các cửa sổ ứng dụng trong phiên Windows hiện tại. Client báo số cửa sổ đã gửi yêu cầu và số cửa sổ còn mở, bao gồm ứng dụng đang chờ lưu dữ liệu. Dịch vụ Windows, Explorer và ứng dụng chỉ chạy nền tiếp tục chạy.
