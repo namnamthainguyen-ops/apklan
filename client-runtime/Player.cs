@@ -18,8 +18,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Screen = System.Windows.Forms.Screen;
 
-[assembly: System.Reflection.AssemblyVersion("1.4.4.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.4.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.7.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.7.0")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Display")]
@@ -182,32 +182,47 @@ namespace RoomTN20.Runtime
                 return "Browser launch requested.";
             }
             if (action != "close-apps") throw new InvalidOperationException("INVALID_DESKTOP_ACTION");
-            int failed = 0;
-            var requested = new List<System.Diagnostics.Process>();
-            using (var self = System.Diagnostics.Process.GetCurrentProcess())
+            var handles = new List<IntPtr>();
+            int requested = 0, failed = 0;
+            using (var self = Process.GetCurrentProcess())
             {
-                foreach (var process in System.Diagnostics.Process.GetProcesses())
-                using (process)
+                EnumWindows(delegate(IntPtr window, IntPtr parameter)
                 {
+                    if (!IsWindowVisible(window)) return true;
+                    uint processId;
+                    GetWindowThreadProcessId(window, out processId);
                     try
                     {
-                        if (process.Id == self.Id || process.SessionId != self.SessionId ||
-                            process.ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase) || process.MainWindowHandle == IntPtr.Zero) continue;
-                        if (process.CloseMainWindow()) requested.Add(System.Diagnostics.Process.GetProcessById(process.Id)); else failed++;
+                        using (var process = Process.GetProcessById((int)processId))
+                        {
+                            if (process.Id == self.Id || process.SessionId != self.SessionId ||
+                                process.ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase)) return true;
+                            handles.Add(window);
+                        }
                     }
-                    catch { failed++; }
-                }
+                    catch (ArgumentException) { }
+                    catch (System.ComponentModel.Win32Exception) { failed++; }
+                    return true;
+                }, IntPtr.Zero);
             }
-            if (requested.Count > 0) Thread.Sleep(1200);
-            int remaining = 0;
-            foreach (var process in requested)
-            using (process)
+            foreach (IntPtr window in handles)
             {
-                try { process.Refresh(); if (!process.HasExited && process.MainWindowHandle != IntPtr.Zero) remaining++; }
-                catch { failed++; }
+                if (PostMessage(window, 0x0010, IntPtr.Zero, IntPtr.Zero)) requested++;
+                else if (IsWindow(window)) failed++;
             }
-            return "Close requests: " + requested.Count + "; still open: " + remaining + "; unavailable: " + failed + ".";
+            if (requested > 0) Thread.Sleep(1200);
+            int remaining = 0;
+            foreach (IntPtr window in handles) if (IsWindow(window) && IsWindowVisible(window)) remaining++;
+            return "Da gui dong " + requested + " cua so ung dung; con mo " + remaining +
+                "; khong truy cap duoc " + failed + ". Ung dung co the dang cho luu du lieu.";
         }
+
+        private delegate bool WindowVisitor(IntPtr window, IntPtr parameter);
+        [DllImport("user32.dll")] private static extern bool EnumWindows(WindowVisitor visitor, IntPtr parameter);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+        [DllImport("user32.dll", SetLastError = true)] private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
         private void Apply(bool desired, string version)
         {
             bool reload = version != mediaVersion || (desired && !locked);

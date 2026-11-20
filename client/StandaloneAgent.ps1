@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.4.6'
-$AgentVersionCode = 20
+$AgentVersion = '1.4.7'
+$AgentVersionCode = 21
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -484,7 +484,11 @@ try {
                         $desktopStatus = 'accepted'
                     } catch {
                         $desktopStatus = 'rejected'
-                        $result = 'Desktop unavailable, locked, busy or action could not be confirmed.'
+                        $reason = [string]$_.Exception.ToString()
+                        $result = if ($reason -match 'DESKTOP_SCREEN_LOCKED') { 'Man hinh dang khoa. Mo man hinh truoc khi dieu khien.' }
+                            elseif ($reason -match 'DESKTOP_NO_USER') { 'Chua co nguoi dung dang nhap Windows.' }
+                            elseif ($reason -match 'DESKTOP_RESULT_UNKNOWN|DESKTOP_SEND_TIMEOUT') { 'Chua xac nhan ket qua. May co the da thuc hien lenh.' }
+                            else { 'Phien Windows chua san sang. Dang nhap, mo khoa Windows va quet lai; cai de client moi neu con loi.' }
                     }
                     $desktopResults[$nonceKey] = @{ Signature = $expected; Address = $remote.Address.ToString(); Status = $desktopStatus; Message = $result }
                     Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status $desktopStatus -Message $result

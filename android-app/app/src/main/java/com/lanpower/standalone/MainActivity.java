@@ -189,6 +189,7 @@ public final class MainActivity extends Activity {
         updateMenuButton = button("⋮", NAVY, R.id.update_menu);
         updateMenuButton.setPadding(0, 0, 0, 0);
         updateMenuButton.setTextSize(26);
+        updateMenuButton.setMinHeight(dp(48));
         updateMenuButton.setContentDescription("Menu cập nhật");
         updateMenuButton.setOnClickListener(view -> showUpdatesMenu());
         LinearLayout.LayoutParams menuLayout = new LinearLayout.LayoutParams(dp(48), dp(48));
@@ -423,7 +424,16 @@ public final class MainActivity extends Activity {
     private void detailField(LinearLayout parent, String label, String value) {
         LinearLayout line = row();
         line.setPadding(dp(2), dp(12), dp(2), dp(12));
-        line.addView(text(label, 14, Color.DKGRAY), weighted());
+        TextView caption = text(label, 14, Color.DKGRAY);
+        int icon = iconFor(label);
+        if (icon != 0) {
+            android.graphics.drawable.Drawable drawable = getDrawable(icon).mutate();
+            drawable.setTint(NAVY);
+            drawable.setBounds(0, 0, dp(20), dp(20));
+            caption.setCompoundDrawables(drawable, null, null, null);
+            caption.setCompoundDrawablePadding(dp(9));
+        }
+        line.addView(caption, weighted());
         TextView detail = text(value, 14, NAVY);
         detail.setGravity(Gravity.END);
         detail.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -451,7 +461,7 @@ public final class MainActivity extends Activity {
         if (room.duplicateId(device)) content.addView(note("Trùng ID client với máy khác. Kiểm tra ảnh ghost và cấu hình phần cứng."));
         if (room.restartChecks.containsKey(device.listKey())) content.addView(note(room.restartChecks.get(device.listKey()).message));
         String desktopStatus = room.scanError.isEmpty() ? device.desktopBlockReason() : "Cần quét lại máy";
-        content.addView(note("Mở website / Đóng ứng dụng: " + (desktopStatus.isEmpty() ? "Phiên Windows sẵn sàng" : desktopStatus)));
+        content.addView(note("Mở website / Đóng tất cả ứng dụng: " + (desktopStatus.isEmpty() ? "Phiên Windows sẵn sàng" : desktopStatus)));
         if (!device.supportsUwf()) content.addView(note("Chưa xác thực được UWF. Bộ cài client mới tự chuẩn bị UWF: cài hoặc cập nhật client rồi khởi động lại nếu được yêu cầu. Windows Home/Pro không hỗ trợ tính năng này."));
         content.addView(note("Đóng/bỏ đóng băng C: đặt trạng thái cho lần khởi động tiếp theo; app không tự khởi động lại máy. Xem Current/Next sau khi quét rồi tự chọn Khởi động lại khi sẵn sàng."));
         addActionButtons(content, room, device);
@@ -460,7 +470,7 @@ public final class MainActivity extends Activity {
     private void addActionButtons(LinearLayout parent, RoomModel room, ManagedDevice oneDevice) {
         if (oneDevice != null) {
             String[] commands = {"wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock", "open-web", "close-apps"};
-            String[] labels = {"⏻\nBật máy", "⏻\nTắt máy", "⟳\nKhởi động lại", "❄\nĐóng băng C:", "♧\nBỏ đóng băng C:", "♙\nKhóa màn hình", "♙\nMở màn hình", "◎\nMở website", "×\nĐóng ứng dụng"};
+            String[] labels = {"Bật máy", "Tắt máy", "Khởi động lại", "Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình", "Mở website", "Đóng tất cả ứng dụng"};
             int[] actionIds = {R.id.action_wake, R.id.action_shutdown, R.id.action_restart, R.id.action_freeze, R.id.action_unfreeze, R.id.action_lock, R.id.action_unlock, View.NO_ID, View.NO_ID};
             for (int offset = 0; offset < commands.length; offset += 4) {
                 LinearLayout line = row();
@@ -472,6 +482,7 @@ public final class MainActivity extends Activity {
                     action.setTextSize(12);
                     action.setMinHeight(dp(84));
                     action.setTextColor(index == 0 ? GREEN : index == 1 ? RED : BLUE);
+                    action.setCompoundDrawableTintList(action.getTextColors());
                     GradientDrawable tile = new GradientDrawable();
                     tile.setColor(Color.WHITE);
                     tile.setCornerRadius(dp(10));
@@ -488,7 +499,8 @@ public final class MainActivity extends Activity {
                 parent.addView(line, matchWrap());
             }
             return;
-        }        String[] actions = {"wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock"};
+        }
+        String[] actions = {"wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock"};
         int[] ids = {R.id.action_wake, R.id.action_shutdown, R.id.action_restart, R.id.action_freeze, R.id.action_unfreeze, R.id.action_lock, R.id.action_unlock};
         int[] colors = {GREEN, RED, AMBER, BLUE, NAVY, RED, GREEN};
         LinearLayout first = row();
@@ -511,7 +523,7 @@ public final class MainActivity extends Activity {
         if (oneDevice == null) selectionButtons.add(more);
         more.setOnClickListener(view -> {
             List<ManagedDevice> targets = oneDevice == null ? room.selected(selected) : Collections.singletonList(oneDevice.copy());
-            String[] labels = {"Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình", "Mở website", "Đóng ứng dụng đang mở"};
+            String[] labels = {"Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình", "Mở website", "Đóng tất cả ứng dụng"};
             showPrompt(new AlertDialog.Builder(this).setTitle("Thao tác khác").setItems(labels, (dialog, index) -> {
                 if (index < 4) confirmAction(room, targets, actions[index + 3]);
                 else desktopPrompt(room, targets, index == 4);
@@ -528,10 +540,10 @@ public final class MainActivity extends Activity {
         url.setHint("20.com.vn");
         url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle((openWeb ? "Mở website" : "Đóng ứng dụng") + " • " + targets.size() + " máy")
+                .setTitle((openWeb ? "Mở website" : "Đóng tất cả ứng dụng") + " • " + targets.size() + " máy")
                 .setNegativeButton("Hủy", null).setPositiveButton("Thực hiện", null);
         if (openWeb) builder.setView(url);
-        else builder.setMessage("Gửi yêu cầu đóng các cửa sổ ứng dụng. Windows có thể hỏi lưu dữ liệu.");
+        else builder.setMessage("Đóng tất cả cửa sổ ứng dụng trong phiên người dùng hiện tại. Ứng dụng có thể yêu cầu lưu dữ liệu. Dịch vụ hệ thống và ứng dụng chỉ chạy nền vẫn hoạt động.");
         AlertDialog dialog = builder.create();
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
             String input = openWeb ? url.getText().toString().trim() : "";
@@ -1221,8 +1233,35 @@ public final class MainActivity extends Activity {
     }
 
     private void compact(Button button) {
-        button.setPadding(dp(2), 0, dp(2), 0);
+        button.setPadding(dp(3), dp(8), dp(3), dp(8));
         button.setMaxLines(2);
+        button.setMinHeight(dp(66));
+    }
+
+    private int iconFor(String label) {
+        switch (label) {
+            case "Bật máy": case "Tắt máy": return R.drawable.ic_ui_power;
+            case "Khởi động lại": case "Cập nhật": return R.drawable.ic_ui_restart;
+            case "Đóng băng C:": case "UWF ổ C": return R.drawable.ic_ui_freeze;
+            case "Bỏ đóng băng C:": return R.drawable.ic_ui_thaw;
+            case "Khóa màn hình": return R.drawable.ic_ui_lock;
+            case "Mở màn hình": return R.drawable.ic_ui_unlock;
+            case "Mở website": return R.drawable.ic_ui_globe;
+            case "Đóng tất cả ứng dụng": return R.drawable.ic_ui_close_apps;
+            case "Quét LAN": return R.drawable.ic_ui_scan;
+            case "Mạng LAN": case "Địa chỉ IP": case "Địa chỉ MAC": return R.drawable.ic_ui_network;
+            case "Quảng cáo": case "+ Chọn ảnh / video": return R.drawable.ic_ui_media;
+            case "Gửi lại cho cả phòng": return R.drawable.ic_ui_restart;
+            case "⋮": case "Thao tác khác": return R.drawable.ic_ui_more;
+            case "‹ Quay lại": return R.drawable.ic_ui_back;
+            case "+ Thêm phòng": return R.drawable.ic_ui_add;
+            case "Lần thấy cuối": case "Thời lượng": return R.drawable.ic_ui_clock;
+            case "Xóa": return R.drawable.ic_ui_trash;
+            case "Lên": return R.drawable.ic_ui_up;
+            case "Xuống": return R.drawable.ic_ui_down;
+            case "Trạng thái": case "Màn hình": case "Phiên bản client": return R.drawable.ic_ui_computer;
+            default: return 0;
+        }
     }
 
     private Button button(String value, int color, int id) {
@@ -1234,10 +1273,28 @@ public final class MainActivity extends Activity {
         button.setAllCaps(false);
         button.setMinWidth(0);
         button.setMinimumWidth(0);
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(dp(6), dp(10), dp(6), dp(10));
+        button.setMaxLines(2);
+        button.setMinHeight(dp(64));
+        button.setStateListAnimator(null);
+        int icon = iconFor(value);
+        if (icon != 0) {
+            android.graphics.drawable.Drawable drawable = getDrawable(icon).mutate();
+            drawable.setTintList(button.getTextColors());
+            drawable.setBounds(0, 0, dp(23), dp(23));
+            button.setCompoundDrawables(null, drawable, null, null);
+            button.setCompoundDrawablePadding(dp(6));
+            if ("⋮".equals(value)) button.setText("");
+            if ("‹ Quay lại".equals(value)) button.setText("Quay lại");
+            if ("+ Thêm phòng".equals(value)) button.setText("Thêm phòng");
+            if ("+ Chọn ảnh / video".equals(value)) button.setText("Chọn ảnh / video");
+        }
         GradientDrawable background = new GradientDrawable();
         background.setColor(color);
         background.setCornerRadius(dp(6));
-        button.setBackground(background);
+        android.content.res.ColorStateList ink = android.content.res.ColorStateList.valueOf(Color.argb(35, 140, 170, 200));
+        button.setBackground(new android.graphics.drawable.RippleDrawable(ink, background, null));
         return button;
     }
 

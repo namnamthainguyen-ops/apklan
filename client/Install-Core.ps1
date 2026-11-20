@@ -382,7 +382,7 @@ function Resolve-LanPowerRuntimePayload {
     param([string]$Source, [string]$PayloadRoot, [ValidateSet('runtime','player')][string]$Kind)
     # These pins also let the older, three-script updater install the new signed
     # core without accepting unsigned sidecars or changing its trust key.
-    $fileName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime-1.4.4.dll' } else { 'RoomTN20.Player-1.4.4.exe' }
+    $fileName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime-1.4.7.dll' } else { 'RoomTN20.Player-1.4.7.exe' }
     $installedName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime.dll' } else { 'RoomTN20.Player.exe' }
     $expectedHash = if ($Kind -eq 'runtime') { '9616FAFEDA323490C264C7A0071E5C374A8621A70E3CF78C9FD5D8A008EDA503' } else { 'CF95BC917AC5710F4AF8275E06F4251EA27D26FDF35E2E44187CE2AEAC4C306E' }
     if (-not $Source) {
@@ -534,7 +534,7 @@ function Test-LanPowerHandshakeSignature {
 
 function Wait-LanPowerInstalledAgent {
     param([string]$InstallPath, [string]$RoomKey, [int]$Port = 17840,
-        [string]$ExpectedVersion = '1.4.6', [int]$ExpectedVersionCode = 20,
+        [string]$ExpectedVersion = '1.4.7', [int]$ExpectedVersionCode = 21,
         [switch]$RequireMedia,
         [ValidateRange(1, 60)][int]$TimeoutSeconds = 20, [string]$ManagementKey)
     if ($RoomKey) { $ManagementKey = ConvertTo-LanPowerManagementKey $RoomKey }
@@ -699,8 +699,8 @@ function Invoke-LanPowerInstall {
         runtimeDataRoot = $mediaDataRoot
         runtimeSetupMessage = $mediaSetupMessage
         runtimePort = 17842
-        version = '1.4.6'
-        versionCode = 20
+        version = '1.4.7'
+        versionCode = 21
         installedAt = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json
     Set-LanPowerAtomicFile $configPath ([Text.Encoding]::ASCII.GetBytes($newConfig))

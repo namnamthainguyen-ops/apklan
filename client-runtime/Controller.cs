@@ -17,8 +17,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
-[assembly: System.Reflection.AssemblyVersion("1.4.4.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.4.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.7.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.7.0")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Runtime")]
@@ -287,14 +287,23 @@ namespace RoomTN20.Runtime
         }
         public string RunDesktopAction(string action, string url)
         {
-            PlayerConnection target;
+            PlayerConnection target = null;
             string request = Guid.NewGuid().ToString("N");
-            lock (gate)
+            EnsurePlayer(true);
+            DateTime readyDeadline = DateTime.UtcNow.AddSeconds(6);
+            while (target == null)
             {
-                uint session = WTSGetActiveConsoleSessionId();
-                target = players.Find(delegate(PlayerConnection p) { return p.SessionId == session && !p.Unavailable && !p.WindowsLocked && !p.ReportedLocked && p.Generation == generation && (DateTime.UtcNow - p.LastAckUtc).TotalSeconds <= 10; });
-                if (desiredLocked || target == null) throw new InvalidOperationException("DESKTOP_NOT_AVAILABLE");
-                if (Interlocked.CompareExchange(ref target.WriterBusy, 1, 0) != 0) throw new InvalidOperationException("DESKTOP_BUSY");
+                lock (gate)
+                {
+                    uint session = WTSGetActiveConsoleSessionId();
+                    if (desiredLocked) throw new InvalidOperationException("DESKTOP_SCREEN_LOCKED");
+                    if (!HasConsoleUser(session)) throw new InvalidOperationException("DESKTOP_NO_USER");
+                    var candidate = players.Find(delegate(PlayerConnection p) { return p.SessionId == session && !p.Unavailable && !p.WindowsLocked && !p.ReportedLocked && p.Generation == generation && (DateTime.UtcNow - p.LastAckUtc).TotalSeconds <= 10; });
+                    if (candidate != null && Interlocked.CompareExchange(ref candidate.WriterBusy, 1, 0) == 0) target = candidate;
+                }
+                if (target != null) break;
+                if (DateTime.UtcNow >= readyDeadline) throw new InvalidOperationException("DESKTOP_NOT_AVAILABLE");
+                Thread.Sleep(100);
             }
             try
             {
