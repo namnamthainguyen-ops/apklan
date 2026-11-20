@@ -443,7 +443,10 @@ function Stop-LanPowerDisplay {
     $expected = [IO.Path]::GetFullPath((Join-Path $InstallPath 'Display\RoomTN20.Player.exe'))
     foreach ($process in @(Get-Process -Name 'RoomTN20.Player' -ErrorAction SilentlyContinue)) {
         try {
-            if ($process.MainModule.FileName -ieq $expected) { Stop-Process -Id $process.Id -Force -ErrorAction Stop }
+            if ($process.MainModule.FileName -ieq $expected) {
+                Stop-Process -Id $process.Id -Force -ErrorAction Stop
+                if (-not $process.WaitForExit(10000)) { throw 'Display process did not exit.' }
+            }
         }
         catch { throw 'DISPLAY_STOP_FAILED: Close the Room TN20 display session before reinstalling.' }
     }
@@ -531,7 +534,7 @@ function Test-LanPowerHandshakeSignature {
 
 function Wait-LanPowerInstalledAgent {
     param([string]$InstallPath, [string]$RoomKey, [int]$Port = 17840,
-        [string]$ExpectedVersion = '1.4.5', [int]$ExpectedVersionCode = 19,
+        [string]$ExpectedVersion = '1.4.6', [int]$ExpectedVersionCode = 20,
         [switch]$RequireMedia,
         [ValidateRange(1, 60)][int]$TimeoutSeconds = 20, [string]$ManagementKey)
     if ($RoomKey) { $ManagementKey = ConvertTo-LanPowerManagementKey $RoomKey }
@@ -649,7 +652,6 @@ function Invoke-LanPowerInstall {
     $displayTaskName = $TaskName + 'Display'
     Stop-ScheduledTask -TaskName $displayTaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $displayTaskName -Confirm:$false -ErrorAction SilentlyContinue
-    Stop-LanPowerDisplay -InstallPath $InstallPath
     if ($existingTask) {
         Stop-ScheduledTask -TaskName $TaskName -ErrorAction Stop
         for ($attempt = 0; $attempt -lt 50; $attempt++) {
@@ -659,6 +661,8 @@ function Invoke-LanPowerInstall {
         if ((Get-ScheduledTask -TaskName $TaskName).State -eq 'Running') { throw 'Existing agent did not stop.' }
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     }
+    # The agent can respawn the display. Stop it before terminating the player.
+    Stop-LanPowerDisplay -InstallPath $InstallPath
     $updateTaskName = $TaskName + 'Updater'
     $displayRoot = Join-Path $InstallPath 'Display'
     New-Item -ItemType Directory -Path $displayRoot -Force | Out-Null
@@ -695,8 +699,8 @@ function Invoke-LanPowerInstall {
         runtimeDataRoot = $mediaDataRoot
         runtimeSetupMessage = $mediaSetupMessage
         runtimePort = 17842
-        version = '1.4.5'
-        versionCode = 19
+        version = '1.4.6'
+        versionCode = 20
         installedAt = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json
     Set-LanPowerAtomicFile $configPath ([Text.Encoding]::ASCII.GetBytes($newConfig))

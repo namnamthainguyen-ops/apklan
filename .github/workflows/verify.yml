@@ -66,14 +66,14 @@ jobs:
           ./client-runtime/Build.ps1 -OutputDirectory '.ci-client-setup/runtime-built'
           ./client-runtime/Test.ps1 -OutputDirectory '.ci-client-setup/runtime-built'
           ./client-runtime/Test.ps1
-          ./client-installer/Build.ps1 -OutputPath '.ci-client-setup/built/RoomTN20-ClientSetup-1.4.5.exe'
+          ./client-installer/Build.ps1 -OutputPath '.ci-client-setup/built/RoomTN20-ClientSetup-1.4.6.exe'
       - name: Verify embedded payload hashes, KDF and in-process form contract
         shell: powershell
         run: |
-          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/built/RoomTN20-ClientSetup-1.4.5.exe'
+          ./tests/ClientInstaller-Verify.ps1 -InstallerExe '.ci-client-setup/built/RoomTN20-ClientSetup-1.4.6.exe'
       - name: Install from built EXE, verify SYSTEM agent, reinstall and uninstall
         shell: powershell
-        run: ./tests/Install-Smoke.ps1 -InstallerExe '.ci-client-setup/built/RoomTN20-ClientSetup-1.4.5.exe'
+        run: ./tests/Install-Smoke.ps1 -InstallerExe '.ci-client-setup/built/RoomTN20-ClientSetup-1.4.6.exe'
       - name: Record installer checksums
         shell: powershell
         run: |

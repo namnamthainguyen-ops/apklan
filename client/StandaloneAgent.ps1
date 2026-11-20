@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.4.5'
-$AgentVersionCode = 19
+$AgentVersion = '1.4.6'
+$AgentVersionCode = 20
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840

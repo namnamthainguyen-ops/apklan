@@ -1,4 +1,4 @@
-# Room TN20 — Windows 1.4.5 / Android 1.4.9
+# Room TN20 — Windows 1.4.6 / Android 1.4.9
 
 [![Verify Room TN20](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml/badge.svg)](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml)
 
@@ -37,7 +37,7 @@ Cài client **1.4.0** trên máy mẫu, nhập key phòng, cấu hình VPN nếu
 
 ## Tải về
 
-- **[Tải bộ cài client Windows 1.4.5 — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.5.exe)** — nhập key phòng rồi chọn **Cài / Cài đè**; chứa sẵn phần khóa/quảng cáo và tự chuẩn bị UWF khi được hỗ trợ.
+- **[Tải bộ cài client Windows 1.4.6 — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.6.exe)** — nhập key phòng rồi chọn **Cài / Cài đè**; chứa sẵn phần khóa/quảng cáo và tự chuẩn bị UWF khi được hỗ trợ.
 - **[Tải APK Room TN20 1.4.9](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.4.9.apk)** — Android 8.0 trở lên, cùng chữ ký để nâng cấp và giữ dữ liệu phòng.
 - [Tải toàn bộ mã nguồn và bộ cài Windows ZIP](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip).
 - [Xem script cài Windows online](https://github.com/namnamthainguyen-ops/apklan/blob/main/install-online.ps1).
@@ -55,7 +55,7 @@ Tự chọn key gồm đúng **8 ký tự ASCII in được**, phân biệt hoa/
 
 ### Bước 2 — Cài một file EXE trên từng máy Windows
 
-1. [Tải `RoomTN20-ClientSetup-1.4.5.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.5.exe), có thể chép cùng file này sang tất cả máy client. Để dùng quảng cáo, chuẩn bị ổ D: chưa đóng băng.
+1. [Tải `RoomTN20-ClientSetup-1.4.6.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.6.exe), có thể chép cùng file này sang tất cả máy client. Để dùng quảng cáo, chuẩn bị ổ D: chưa đóng băng.
 2. Mở file với quyền Administrator, nhập key của phòng rồi bấm **Cài / Cài đè**. Không cần gỡ bản cũ; định danh theo phần cứng và mạng VPN đã lưu được giữ lại nếu không nhập cấu hình mới.
 3. Bộ cài kiểm tra client đã phản hồi đúng khóa/phiên bản, báo **Cài đặt thành công** rồi tự đóng sau 3 giây. Nếu UWF cần restart, thông báo sẽ ghi rõ; bạn tự khởi động lại khi sẵn sàng.
 
@@ -66,7 +66,7 @@ EXE tự cài/chuẩn bị UWF khi hệ điều hành hỗ trợ, không cần c
 **Windows IoT Enterprise/Enterprise/Education:** nếu chuẩn bị UWF bị lỗi thật, bộ cài giữ thông báo và không tự đóng như một lần cài hoàn tất. Mã lỗi DISM, phiên bản Windows và đường dẫn nhật ký được hiển thị để xử lý đúng nguyên nhân. Nhật ký chuẩn bị UWF nằm tại `C:\ProgramData\LanPowerStandalone\uwf-preparation.log`. Thiếu nguồn thành phần Windows hoặc chính sách Windows Update/WSUS có thể cần sửa nguồn cài tương ứng; bộ cài không báo UWF thành công khi kiểm tra thất bại.
 
 ```text
-EXE SHA-256: F9A061A91677A07449573CEA22839B32B2AFA578C7D87C4A1924C918477C156A
+EXE SHA-256: FD7E32F2C6222D8F1C5BE850BB87147E52E6F701F91694CFEE73AE22A3E0818A
 ```
 
 Bản EXE hiện chưa ký Authenticode; Windows có thể hiển thị nhà xuất bản chưa xác định. Thương hiệu hiển thị trong ứng dụng là **Room TN20 — Công ty TNHH TN20**, website **20.com.vn**.
@@ -81,7 +81,7 @@ $ErrorActionPreference = 'Stop'
 $key = Read-Host 'Nhap key phong gom 8 ky tu, khong khoang trang'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/install-online.ps1'
-$expected = '73E7D0406DC4BB790C471D8457EC8CC8D385F093C57DB04712B673DCE7467551'
+$expected = 'ED34E4D1C21777F84DF48411C41D1A26A6740725C9B00C8A51D2A5891957B45F'
 $file = Join-Path $env:TEMP ('lanpower-install-' + [Guid]::NewGuid().ToString('N') + '.ps1')
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
 if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $expected) { throw 'Installer checksum mismatch.' }

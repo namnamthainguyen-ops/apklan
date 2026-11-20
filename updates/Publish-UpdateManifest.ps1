@@ -2,8 +2,8 @@
 param(
     [Parameter(Mandatory)][string]$PrivateKeyPath,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$SourceCommit,
-    [string]$Version = '1.4.5',
-    [int]$VersionCode = 19,
+    [string]$Version = '1.4.6',
+    [int]$VersionCode = 20,
     [ValidateSet('stable', 'pilot')][string]$Channel = 'stable',
     [string]$AndroidVersion,
     [int]$AndroidVersionCode,
