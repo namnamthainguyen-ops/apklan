@@ -256,7 +256,7 @@ def refresh():
     wait_idle()
     before = last_scans()
     tap(by_id("refresh"), lambda tree: any(n.get("text") == "Tìm máy mới" for n in tree.iter("node")))
-    tap_text("Tìm máy mới", lambda _tree: any(value > before.get(room_id, 0) for room_id, value in last_scans().items()))
+    tap_text("Tìm máy mới", lambda tree: not any(n.get("text") == "Tìm máy mới" for n in tree.iter("node")) and any(value > before.get(room_id, 0) for room_id, value in last_scans().items()))
     wait_idle()
 
 
