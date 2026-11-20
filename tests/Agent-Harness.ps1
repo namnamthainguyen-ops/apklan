@@ -6,6 +6,7 @@ $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors)
 if ($errors.Count -gt 0) { throw 'Cannot parse production agent.' }
 $replacements = @{
+    'Invoke-LanPowerClientUpdate' = 'function Invoke-LanPowerClientUpdate { param($Config) [Console]::WriteLine("TEST_UPDATE_CLIENT"); return "Signed updater start requested." }'
     'Get-LanPowerBootCapability' = "function Get-LanPowerBootCapability { return ',boot-638000000000000000' }"
     'Test-LanPowerPilotUpdates' = 'function Test-LanPowerPilotUpdates { return $false }'
     'Initialize-LanPowerDesktopFallback' = 'function Initialize-LanPowerDesktopFallback { }'

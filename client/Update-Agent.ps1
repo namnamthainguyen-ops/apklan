@@ -154,6 +154,7 @@ function Invoke-RoomTN20Update {
         . (Join-Path $root 'Install-Core.ps1')
         [void](Get-LanPowerInstallPath $root)
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Write-RoomTN20UpdateStatus $root $currentCode $latest 'checking' 'Checking signed release metadata.'
         $publicKey = Get-Content -LiteralPath (Join-Path $root 'Update-PublicKey.xml') -Raw
         $manifest = Read-RoomTN20Manifest -EnvelopeJson (Get-RoomTN20ManifestJson) -PublicKeyXml $publicKey
         $policy = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Policies\RoomTN20' -Name PilotUpdates -ErrorAction SilentlyContinue
@@ -190,6 +191,7 @@ function Invoke-RoomTN20Update {
         }
         [void][IO.Directory]::CreateDirectory($staging, $security)
         $files = @(@('agent', 'StandaloneAgent.ps1'), @('core', 'Install-Core.ps1'), @('updater', 'Update-Agent.ps1'))
+        Write-RoomTN20UpdateStatus $root $currentCode $latest 'downloading' 'Downloading signed update files.'
         if ([int]$manifest.windows.versionCode -ge 10) { $files += @(@('runtime', 'RoomTN20.Runtime.dll'), @('player', 'RoomTN20.Player.exe')) }
         foreach ($file in $files) {
             $metadata = $manifest.windows.($file[0])

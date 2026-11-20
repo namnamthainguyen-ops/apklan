@@ -100,7 +100,7 @@ def handle_request(udp, remote, data):
                     DISCOVERY_BY_ROOM[device["room"]] = DISCOVERY_BY_ROOM.get(device["room"], 0) + 1
                     response = {"type": "discovery", "requestNonce": nonce, "deviceId": device["id"],
                                 "hostname": device["hostname"], "mac": device["mac"], "agentVersion": "1.3.1",
-                                "uwf": uwf(device), "capabilities": "power,uwf,wolrelay,sessionlock,media",
+                                "uwf": uwf(device), "capabilities": "power,uwf,wolrelay,sessionlock,media,updatecontrol",
                                 "lockState": "locked" if device["locked"] else "unlocked", "mediaVersion": device["mediaVersion"],
                                 "mediaPort": 17842, "mediaCertSha256": "a" * 64}
                     response["signature"] = sign(key, f"discovery\n{nonce}\n{device['id']}\n{device['hostname']}\n{device['mac']}")
@@ -123,7 +123,7 @@ def handle_request(udp, remote, data):
                 return
             device["nonces"].add(message["nonce"])
             action = message["action"]
-            rejected = action in device["failActions"] or action not in {"freeze", "unfreeze", "shutdown", "restart", "wake", "lock", "unlock"}
+            rejected = action in device["failActions"] or action not in {"freeze", "unfreeze", "shutdown", "restart", "wake", "lock", "unlock", "update-client"}
             status = "rejected" if rejected else "accepted"
             detail = "TEST_UWF_FAILURE" if rejected else "Power action accepted."
             if not rejected and action in {"freeze", "unfreeze"}:

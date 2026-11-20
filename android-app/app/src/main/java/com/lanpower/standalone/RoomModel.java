@@ -160,6 +160,22 @@ final class ManagedDevice {
         return supports("uwf");
     }
 
+    String updateDescription() {
+        if (!updateAuthenticated) return "Chưa xác thực";
+        switch (updateStatus) {
+            case "checking": return "Đang kiểm tra";
+            case "downloading": return "Đang tải";
+            case "available": return "Có bản mới";
+            case "updating": return "Đang cài";
+            case "current": return "Đã cập nhật";
+            case "blocked-uwf": return "Chờ mở UWF";
+            case "pending-reboot": return "Chờ khởi động lại";
+            case "error": return "Lỗi cập nhật";
+            case "disabled": return "Đã tắt cập nhật";
+            default: return "Chưa có kết quả";
+        }
+    }
+
     String bootToken() {
         if (stateAuthenticated) for (String value : capabilities.split(","))
             if (value.matches("boot-[0-9]{10,20}")) return value;

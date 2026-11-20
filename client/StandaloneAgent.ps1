@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.4.7'
-$AgentVersionCode = 21
+$AgentVersion = '1.4.8'
+$AgentVersionCode = 22
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -246,7 +246,7 @@ function Get-AgentUpdateStatus {
     try {
         if (Test-Path -LiteralPath $path) {
             $status = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-            if ($status.status -in @('current', 'available', 'updating', 'blocked-uwf', 'error', 'disabled', 'unknown')) {
+            if ($status.status -in @('checking', 'downloading', 'current', 'available', 'updating', 'blocked-uwf', 'error', 'disabled', 'unknown')) {
                 $result.latestVersion = [string]$status.latestVersion
                 $result.status = [string]$status.status
                 $result.message = [string]$status.message
@@ -254,6 +254,18 @@ function Get-AgentUpdateStatus {
         }
     } catch { }
     return $result
+}
+
+function Invoke-LanPowerClientUpdate {
+    param([object]$Config)
+    if (-not $Config.PSObject.Properties['updateTaskName'] -or
+        -not (Test-Path -LiteralPath (Join-Path $AgentRoot 'Update-Agent.ps1') -PathType Leaf)) {
+        throw 'UPDATE_NOT_INSTALLED: Cai de client moi de chuan bi bo cap nhat.'
+    }
+    $task = Get-ScheduledTask -TaskName ([string]$Config.updateTaskName) -ErrorAction Stop
+    if ($task.State -eq 'Running') { return 'Bo cap nhat dang chay. Quet lai de xem trang thai.' }
+    Start-ScheduledTask -TaskName ([string]$Config.updateTaskName) -ErrorAction Stop
+    return 'Da gui yeu cau kiem tra va cai ban moi co chu ky. Quet lai de xem ket qua; UWF co the chan cai dat.'
 }
 
 function Invoke-UwfCommand {
@@ -397,7 +409,7 @@ try {
                     $responseSignature = Get-HmacBase64 $config.managementKey "discovery`n$($message.nonce)`n$($config.deviceId)`n$hostname`n$mac"
                     if (-not $script:DisplayRuntime -and ([DateTime]::UtcNow - $script:RuntimeLastTry).TotalSeconds -ge 30) { Initialize-LanPowerRuntime -Config $config }
                     $uwfState = Get-UwfState
-                    $capabilities = (Get-UwfCapabilities) + $bootCapability
+                    $capabilities = (Get-UwfCapabilities) + $bootCapability + ',updatecontrol'
                     if (Test-LanPowerPilotUpdates) { $capabilities += ',pilotupdate' }
                     $display = Get-LanPowerRuntimeSnapshot
                     if ($display.available) { $capabilities += ',desktopactions,desktopretry' }
@@ -476,6 +488,18 @@ try {
                 }
                 if ($usedNonces.Count -ge 4096) { continue }
                 $usedNonces[$nonceKey] = $now
+                if ($message.action -eq 'update-client') {
+                    try {
+                        $result = Invoke-LanPowerClientUpdate -Config $config
+                        $updateOutcome = 'accepted'
+                    } catch {
+                        $updateOutcome = 'rejected'
+                        $result = 'UPDATE_START_FAILED: Kiem tra tac vu cap nhat Windows; cai de client moi neu tac vu bi thieu.'
+                    }
+                    $desktopResults[$nonceKey] = @{ Signature = $expected; Address = $remote.Address.ToString(); Status = $updateOutcome; Message = $result }
+                    Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status $updateOutcome -Message $result
+                    continue
+                }
 
                 if ($message.action -in @('open-web', 'close-apps')) {
                     try {

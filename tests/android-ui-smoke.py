@@ -379,7 +379,7 @@ def close_result(expected_error=None):
 def bulk(action, expected_ids=IDS_A, expected_error=None):
     start = len(control()["events"])
     extra = {"freeze": "Đóng băng C:", "unfreeze": "Bỏ đóng băng C:",
-             "lock": "Khóa màn hình", "unlock": "Mở màn hình"}
+             "lock": "Khóa màn hình", "unlock": "Mở màn hình", "update-client": "Cập nhật client"}
     if action in extra:
         label = extra[action]
         tap_text("Thao tác khác", lambda tree: any(n.get("text") == label for n in tree.iter("node")))
@@ -481,6 +481,7 @@ events = bulk("unfreeze", expected_error="TEST_UWF_FAILURE")
 assert {event["status"] for event in events} == {"accepted", "rejected"}
 control("/set", {"devices": {second: {"failActions": []}}})
 bulk("unfreeze")
+bulk("update-client")
 bulk("restart")
 bulk("shutdown")
 refresh()

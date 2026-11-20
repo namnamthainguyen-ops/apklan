@@ -89,3 +89,7 @@ Bản 1.2.0 hỗ trợ relay qua agent online cùng phòng có capability `wolre
 ## Cập nhật có chữ ký
 
 Manifest HTTPS `updates/stable.json` gồm `algorithm = RS256`, `payload` Base64 và `signature` Base64. Xác minh RSA-SHA256/PKCS#1 v1.5 trên đúng byte payload bằng khóa công khai nhúng sẵn trước khi tin JSON, phiên bản hoặc URL. Payload stable schema 1 chứa version/versionCode và URL/SHA-256 cho Windows agent/core/updater/setup và Android APK. URL chỉ thuộc repository cho phép; các artifact phát hành dùng SHA commit bất biến. APK phải cùng package và chứng thư hiện tại. Xem [quy trình phát hành](updates/README.md).
+
+## Yêu cầu cập nhật client
+
+Client Windows 1.4.8 thêm capability đã ký updatecontrol và action update-client. Lệnh dùng canonical command hiện có, timestamp/nonce và ACK chi tiết đã ký. Client chỉ khởi chạy tác vụ updater đã cấu hình; updater đang chạy được giữ nguyên. Kết quả được lưu theo nonce để cùng một gói gửi lại nhận cùng phản hồi. Bộ updater tiếp tục kiểm tra RSA/SHA-256, chống hạ phiên bản và kiểm tra UWF. ACK accepted xác nhận gửi yêu cầu, trạng thái cài đặt được đọc qua metadata update đã ký trong lần discovery tiếp theo.

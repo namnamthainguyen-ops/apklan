@@ -48,3 +48,9 @@ JVM tests kiểm tra các vector KDF/HMAC độc lập, ràng buộc chữ ký/r
 APK 1.5.3 chỉ hiển thị tên và IP trong danh sách, chia Online phía trên và Offline phía dưới. Mỗi nhóm có ô chọn tất cả riêng. Bỏ chọn một nhóm giữ lựa chọn của nhóm còn lại. Chạm máy để xem UWF, phiên bản, quảng cáo và thao tác.
 
 Nút Đóng tất cả ứng dụng gửi yêu cầu đóng các cửa sổ ứng dụng trong phiên Windows hiện tại. Client báo số cửa sổ đã gửi yêu cầu và số cửa sổ còn mở, bao gồm ứng dụng đang chờ lưu dữ liệu. Dịch vụ Windows, Explorer và ứng dụng chỉ chạy nền tiếp tục chạy.
+
+## Cập nhật client từ APK
+
+Từ APK 1.5.4, chọn máy Online trong phòng rồi mở Thao tác khác → Cập nhật client. Màn hình chi tiết máy cũng có nút Cập nhật client. Cần client Windows 1.4.8 trở lên; các bản cũ có thể nhận bản này bằng bộ tự cập nhật hiện có hoặc cài đè EXE.
+
+APK gửi yêu cầu đã xác thực để khởi chạy tác vụ cập nhật Windows đã cài. Client tự kiểm tra manifest và gói có chữ ký. Quét lại để xem Đang kiểm tra, Đang tải, Đang cài, Đã cập nhật, Chờ mở UWF, Chờ khởi động lại hoặc Lỗi cập nhật. Yêu cầu đã nhận chỉ xác nhận khởi chạy tác vụ. Máy offline được bỏ qua. Nếu C: đang đóng băng, mở UWF và khởi động lại rồi gửi yêu cầu lần nữa.

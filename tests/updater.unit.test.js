@@ -24,3 +24,10 @@ test('production updater applies only verified bytes, preserves configuration an
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /SIGNED_UPDATER_APPLY=PASS/);
 });
+
+test('APK update requests start the configured updater once and preserve a running update', { skip: process.platform !== 'win32', timeout: 30000 }, () => {
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', path.join(__dirname, 'Update-Command.ps1')], { encoding: 'utf8', timeout: 25000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /UPDATE_COMMAND=PASS/);
+});

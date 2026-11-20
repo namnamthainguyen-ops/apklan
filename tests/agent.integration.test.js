@@ -82,10 +82,10 @@ test('real agent ignores malformed, oversized, unsigned and wrongly signed disco
   const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
   assert.equal(reply.type, 'discovery'); assert.equal(reply.requestNonce, nonce); assert.equal(reply.deviceId, agent.deviceId);
   assert.equal(reply.signature, sign(agent.key, `discovery\n${nonce}\n${reply.deviceId}\n${reply.hostname}\n${reply.mac}`));
-  assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media', 'mediasync', 'desktopactions', 'desktopretry', 'boot-638000000000000000']));
+  assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media', 'mediasync', 'desktopactions', 'desktopretry', 'boot-638000000000000000', 'updatecontrol']));
   assert.equal(reply.stateSignature, sign(agent.key, `state\n${nonce}\n${reply.deviceId}\n${reply.agentVersion}\n${reply.uwf}\n${reply.capabilities}`));
   assert.equal(reply.lockSignature, sign(agent.key, `lockstate\n${nonce}\n${reply.deviceId}\n${reply.lockState}\n${reply.mediaVersion}\n${reply.mediaPort}\n${reply.mediaCertSha256}`));
-  assert.equal(reply.clientVersionCode, 21);
+  assert.equal(reply.clientVersionCode, 22);
   assert.equal(reply.runtimeStatus, 'ready');
   assert.equal(reply.runtimeSignature, sign(agent.key, `runtime\n${nonce}\n${reply.deviceId}\n${reply.runtimeStatus}\n${reply.runtimeMessage}`));
   assert.equal(reply.updateSignature, sign(agent.key, `update\n${nonce}\n${reply.deviceId}\n${reply.clientVersionCode}\n${reply.latestVersion}\n${reply.updateStatus}\n${reply.updateMessage}`));
@@ -222,4 +222,15 @@ test('desktop retry returns the signed result without executing twice', { skip: 
   assert.deepEqual(await agent.exchange(request, 3000), first);
   assert.equal(await agent.exchange({...request, desktopValue: 'https://example.org/'}), null);
   assert.equal((agent.output().match(/TEST_DESKTOP_ACTION=open-web/g) || []).length, 1);
+});
+
+test('authenticated APK update command starts once and returns a signed replay-safe result', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t);
+  const request = command(agent.key, agent.deviceId, { action: 'update-client' });
+  assert.equal(await agent.exchange({ ...request, signature: 'forged' }), null);
+  const first = await agent.exchange(request, 3000);
+  assert.equal(first.status, 'accepted');
+  assert.equal(first.detailSignature, sign(agent.key, `ack-detail\n${request.requestId}\naccepted\n${first.message}`));
+  assert.deepEqual(await agent.exchange(request, 3000), first);
+  assert.equal((agent.output().match(/TEST_UPDATE_CLIENT/g) || []).length, 1);
 });

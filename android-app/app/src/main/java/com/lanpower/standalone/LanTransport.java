@@ -200,7 +200,7 @@ final class LanTransport {
             socket.connect(InetAddress.getByName(device.ip), PORT);
             DatagramPacket outgoing = new DatagramPacket(bytes, bytes.length, socket.getInetAddress(), PORT);
             socket.send(outgoing);
-            long timeout = desktopValue != null ? 12_000_000_000L : ("freeze".equals(action) || "unfreeze".equals(action)) ? 30_000_000_000L
+            long timeout = "update-client".equals(action) ? 8_000_000_000L : desktopValue != null ? 12_000_000_000L : ("freeze".equals(action) || "unfreeze".equals(action)) ? 30_000_000_000L
                     : ("lock".equals(action) || "unlock".equals(action)) ? 15_000_000_000L : 3_500_000_000L;
             long deadline = System.nanoTime() + timeout;
             boolean canRetry = desktopValue != null && device.supports("desktopretry");
@@ -226,7 +226,7 @@ final class LanTransport {
                     String message = response.optString("message");
                     boolean verifiedDetail = LanProtocol.verifyAckDetail(key, requestId, status, message, response.optString("detailSignature"));
                     if (!"accepted".equals(status)) throw new CommandRejectedException(verifiedDetail ? message : "Agent từ chối lệnh (không có chi tiết đã xác thực)");
-                    if ("freeze".equals(action) || "unfreeze".equals(action) || "wake".equals(action) || "lock".equals(action) || "unlock".equals(action)) {
+                    if ("freeze".equals(action) || "unfreeze".equals(action) || "wake".equals(action) || "lock".equals(action) || "unlock".equals(action) || "update-client".equals(action)) {
                         if (!verifiedDetail) throw new SocketTimeoutException("Chưa xác thực được chi tiết kết quả; cần agent mới và quét lại trạng thái");
                         return message;
                     }

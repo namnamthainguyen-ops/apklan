@@ -452,10 +452,12 @@ public final class MainActivity extends Activity {
         detailField(info, "Lần thấy cuối", device.lastSeen == 0 ? "Chưa biết" : DateFormat.getDateTimeInstance().format(new Date(device.lastSeen)));
         detailField(info, "UWF ổ C", device.uwfDescription());
         detailField(info, "Phiên bản client", device.stateAuthenticated ? device.agentVersion : "Chưa xác thực");
-        detailField(info, "Cập nhật", device.updateAuthenticated ? device.latestVersion + " • " + device.updateStatus : "Chưa xác thực");
+        detailField(info, "Cập nhật", device.updateAuthenticated ? device.latestVersion + " • " + device.updateDescription() : "Chưa xác thực");
         detailField(info, "Quảng cáo", mediaStatus(room, device));
         detailField(info, "Màn hình", device.lockDescription());
         content.addView(info);
+        if (device.updateAuthenticated && "error".equals(device.updateStatus))
+            content.addView(note("Lỗi cập nhật: " + device.updateMessage));
         if (device.supports("pilotupdate")) content.addView(note("Nhóm cập nhật thử"));
         if (device.updateAuthenticated && "blocked-uwf".equals(device.updateStatus)) content.addView(note("Cập nhật đang chờ mở UWF ổ C:"));
         if (device.updateAuthenticated && "pending-reboot".equals(device.updateStatus)) content.addView(note("Cập nhật đang chờ khởi động lại để mở UWF"));
@@ -470,9 +472,9 @@ public final class MainActivity extends Activity {
 
     private void addActionButtons(LinearLayout parent, RoomModel room, ManagedDevice oneDevice) {
         if (oneDevice != null) {
-            String[] commands = {"wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock", "open-web", "close-apps"};
-            String[] labels = {"Bật máy", "Tắt máy", "Khởi động lại", "Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình", "Mở website", "Đóng tất cả ứng dụng"};
-            int[] actionIds = {R.id.action_wake, R.id.action_shutdown, R.id.action_restart, R.id.action_freeze, R.id.action_unfreeze, R.id.action_lock, R.id.action_unlock, View.NO_ID, View.NO_ID};
+            String[] commands = {"wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock", "open-web", "close-apps", "update-client"};
+            String[] labels = {"Bật máy", "Tắt máy", "Khởi động lại", "Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình", "Mở website", "Đóng tất cả ứng dụng", "Cập nhật client"};
+            int[] actionIds = {R.id.action_wake, R.id.action_shutdown, R.id.action_restart, R.id.action_freeze, R.id.action_unfreeze, R.id.action_lock, R.id.action_unlock, View.NO_ID, View.NO_ID, View.NO_ID};
             for (int offset = 0; offset < commands.length; offset += 4) {
                 LinearLayout line = row();
                 for (int cell = 0; cell < 4; cell++) {
@@ -524,10 +526,11 @@ public final class MainActivity extends Activity {
         if (oneDevice == null) selectionButtons.add(more);
         more.setOnClickListener(view -> {
             List<ManagedDevice> targets = oneDevice == null ? room.selected(selected) : Collections.singletonList(oneDevice.copy());
-            String[] labels = {"Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình", "Mở website", "Đóng tất cả ứng dụng"};
+            String[] labels = {"Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình", "Mở website", "Đóng tất cả ứng dụng", "Cập nhật client"};
             showPrompt(new AlertDialog.Builder(this).setTitle("Thao tác khác").setItems(labels, (dialog, index) -> {
                 if (index < 4) confirmAction(room, targets, actions[index + 3]);
-                else desktopPrompt(room, targets, index == 4);
+                else if (index < 6) desktopPrompt(room, targets, index == 4);
+                else confirmAction(room, targets, "update-client");
             }).setNegativeButton("Đóng", null).create());
         });
         compact(more);
@@ -633,7 +636,8 @@ public final class MainActivity extends Activity {
     }
     private void confirmAction(RoomModel room, List<ManagedDevice> targets, String action) {
         if (busy || targets.isEmpty()) return;
-        String explanation = "wake".equals(action) ? "Magic Packet chỉ gửi yêu cầu bật; cần quét lại để xác nhận. Qua VPN cần ít nhất một máy relay đang online trong LAN đích hoặc router hỗ trợ WOL."
+        String explanation = "update-client".equals(action) ? "Client tự kiểm tra GitHub và cài bản mới có chữ ký. Máy đang đóng băng C: cần mở UWF và khởi động lại trước. Chọn vài máy thử trước, rồi cập nhật các máy còn lại. Theo dõi kết quả trong chi tiết máy."
+                : "wake".equals(action) ? "Magic Packet chỉ gửi yêu cầu bật; cần quét lại để xác nhận. Qua VPN cần ít nhất một máy relay đang online trong LAN đích hoặc router hỗ trợ WOL."
                 : ("freeze".equals(action) || "unfreeze".equals(action)) ? "Thay đổi UWF C: có hiệu lực sau khi khởi động lại. App không tự khởi động lại máy."
                 : ("lock".equals(action) || "unlock".equals(action)) ? "Khóa/mở phiên sử dụng của phòng máy. Khi khóa, màn hình người dùng hiển thị quảng cáo đã gửi. Đây không phải khóa đăng nhập Windows. App sẽ xác nhận trạng thái thực sau lệnh."
                 : "Các máy Offline / chưa rõ trạng thái sẽ được bỏ qua. Hãy lưu công việc trước khi tắt hoặc khởi động lại.";
@@ -677,6 +681,7 @@ public final class MainActivity extends Activity {
                         throw new IllegalStateException("UWF chưa sẵn sàng hoặc agent cũ. Cài lại client mới để tự chuẩn bị UWF, khởi động lại nếu được yêu cầu rồi quét");
                     }
                     if (lockAction && (!device.lockAuthenticated || !device.supports("sessionlock"))) throw new IllegalStateException("Cần cập nhật client có màn hình khóa/quảng cáo");
+                    if ("update-client".equals(action) && !device.supports("updatecontrol")) throw new IllegalStateException("Cần client Windows 1.4.8 trở lên. Chờ client tự cập nhật hoặc cài đè bản mới để bật cập nhật từ APK.");
                     String result;
                     if ("wake".equals(action)) {
                         String localResult = null;
@@ -692,7 +697,7 @@ public final class MainActivity extends Activity {
                     if (lockAction) waitingLock.put(device.listKey(), device);
                     else {
                         successes++;
-                        boolean pending = "wake".equals(action) || "shutdown".equals(action) || "restart".equals(action);
+                        boolean pending = "wake".equals(action) || "shutdown".equals(action) || "restart".equals(action) || "update-client".equals(action);
                         results.add(device.hostname + (pending ? ": ĐÃ GỬI — " : ": ĐÃ XÁC NHẬN — ") + result);
                         if ("restart".equals(action)) postResult(() -> room.trackRestart(device, System.currentTimeMillis()));
                     }
@@ -1206,6 +1211,7 @@ public final class MainActivity extends Activity {
             case "unfreeze": return "Bỏ đóng băng C:";
             case "lock": return "Khóa màn hình";
             case "unlock": return "Mở màn hình";
+            case "update-client": return "Cập nhật client";
             default: throw new IllegalArgumentException("Unsupported action");
         }
     }
@@ -1247,7 +1253,7 @@ public final class MainActivity extends Activity {
     private int iconFor(String label) {
         switch (label) {
             case "Bật": case "Tắt": case "Bật máy": case "Tắt máy": return R.drawable.ic_ui_power;
-            case "Khởi động lại": case "Cập nhật": return R.drawable.ic_ui_restart;
+            case "Khởi động lại": case "Cập nhật": case "Cập nhật client": return R.drawable.ic_ui_restart;
             case "Đóng băng C:": case "UWF ổ C": return R.drawable.ic_ui_freeze;
             case "Bỏ đóng băng C:": return R.drawable.ic_ui_thaw;
             case "Khóa màn hình": return R.drawable.ic_ui_lock;

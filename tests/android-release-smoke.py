@@ -87,6 +87,7 @@ tap(by_id("select_all"), lambda tree: any(by_id("select_all")(node.attrib) and n
 bulk("freeze")
 assert all(device["pending"] is True for device in control()["devices"] if device["id"] in IDS_A)
 bulk("unfreeze")
+bulk("update-client")
 bulk("restart")
 tap(by_id("select_all"), lambda tree: any(by_id("select_all")(node.attrib) and node.attrib.get("checked") == "false" for node in tree.iter("node")))
 select_second = lambda attrs: by_id("device_select")(attrs) and attrs.get("content-desc") == "Chọn CI-A-02"
