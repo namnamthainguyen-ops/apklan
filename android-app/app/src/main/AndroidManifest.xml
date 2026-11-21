@@ -19,6 +19,7 @@
             android:exported="false"
             android:grantUriPermissions="true" />
         <receiver android:name=".UpdateInstallReceiver" android:exported="false" />
+        <activity android:name=".DeviceHistoryActivity" android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">

@@ -466,10 +466,14 @@ public final class MainActivity extends Activity {
         detailField(info, "Màn hình", device.lockDescription());
         content.addView(info);
         Button log = button("Nhật ký máy", NAVY, View.NO_ID);
-        log.setOnClickListener(view -> showPrompt(new AlertDialog.Builder(this)
-                .setTitle("Nhật ký • " + device.hostname)
-                .setMessage(history.read(room.id, device.listKey()))
-                .setPositiveButton("Đóng", null).create()));
+        log.setOnClickListener(view -> {
+            Intent intent = new Intent(this, DeviceHistoryActivity.class);
+            intent.putExtra("roomId", room.id);
+            intent.putExtra("deviceId", device.listKey());
+            intent.putExtra("hostname", device.hostname);
+            intent.putExtra("ip", device.ip);
+            startActivity(intent);
+        });
         content.addView(log, matchWrap());
         if (device.updateAuthenticated && "error".equals(device.updateStatus))
             content.addView(note("Lỗi cập nhật: " + device.updateMessage));
@@ -1134,7 +1138,7 @@ public final class MainActivity extends Activity {
     private void setUpdateStatus(String message, boolean available) {
         updateStatusMessage = message;
         updateReady = available;
-        updateMenuButton.setText(available ? "⋮ •" : "⋮");
+        updateMenuButton.setText("");
         updateMenuButton.setTextSize(available ? 21 : 26);
         updateMenuButton.setContentDescription(available ? "Menu cập nhật • Có bản mới" : "Menu cập nhật");
         if (updateMenu != null) updateMenu.getMenu().findItem(R.id.update_install).setEnabled(available && !busy);
