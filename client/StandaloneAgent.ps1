@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.4.8'
-$AgentVersionCode = 22
+$AgentVersion = '1.4.9'
+$AgentVersionCode = 23
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -19,7 +19,7 @@ $script:UwfAvailable = $false
 $script:LastUwfCheck = [DateTime]::MinValue
 $script:DisplayRuntime = $null
 $script:RuntimeStatus = 'not-configured'
-$script:RuntimeMessage = 'Media data on D: has not been prepared. Reinstall the current client with D: available and unprotected.'
+$script:RuntimeMessage = 'Media storage on the Windows drive has not been prepared. Reinstall the current client.'
 $script:RuntimeLastTry = [DateTime]::MinValue
 
 function Get-LanPowerHardwareDeviceId {
@@ -89,6 +89,8 @@ function Initialize-LanPowerRuntime {
         return
     }
     try {
+        . (Join-Path $AgentRoot 'Install-Core.ps1')
+        Initialize-LanPowerMediaExclusion -DataRoot ([string]$Config.runtimeDataRoot) -VerifyCurrent
         $library = Join-Path $AgentRoot 'RoomTN20.Runtime.dll'
         $certificate = Join-Path $AgentRoot 'media-certificate.pfx'
         $player = Join-Path $AgentRoot 'Display\RoomTN20.Player.exe'
@@ -127,7 +129,7 @@ function Get-LanPowerRuntimeSnapshot {
 
 function Invoke-LanPowerSessionLock {
     param([ValidateSet('lock', 'unlock')][string]$Action)
-    if (-not $script:DisplayRuntime) { throw 'LOCK_RUNTIME_UNAVAILABLE: Check the D: data volume, runtime files and interactive player.' }
+    if (-not $script:DisplayRuntime) { throw 'LOCK_RUNTIME_UNAVAILABLE: Check the Windows-drive media directory, runtime files and interactive player.' }
     return $script:DisplayRuntime.SetLocked($Action -eq 'lock')
 }
 
@@ -302,6 +304,10 @@ function Invoke-UwfAction {
             if ($overlay -and [int64]$overlay.MaximumSize -lt 512) {
                 Invoke-UwfCommand -Tool $uwf -Arguments @('overlay', 'set-size', '1024')
             }
+        }
+        if ($config.PSObject.Properties['runtimeDataRoot'] -and $config.runtimeDataRoot) {
+            . (Join-Path $AgentRoot 'Install-Core.ps1')
+            Initialize-LanPowerMediaExclusion -DataRoot ([string]$config.runtimeDataRoot)
         }
         if (-not $nextProtected) { Invoke-UwfCommand -Tool $uwf -Arguments @('volume', 'protect', 'C:') }
         if (-not $filter.NextEnabled) { Invoke-UwfCommand -Tool $uwf -Arguments @('filter', 'enable') }

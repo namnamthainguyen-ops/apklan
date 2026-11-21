@@ -8,7 +8,7 @@ $tokens = $null
 $parseErrors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repoRoot 'client\Install-Core.ps1'), [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw 'Core installer did not parse.' }
-foreach ($name in @('Resolve-LanPowerRuntimePayload', 'Initialize-LanPowerMediaCertificate', 'Initialize-LanPowerMediaData')) {
+foreach ($name in @('Resolve-LanPowerRuntimePayload', 'Initialize-LanPowerMediaCertificate', 'Get-LanPowerMediaRoot', 'Get-LanPowerNativeSystemDirectory', 'Initialize-LanPowerMediaExclusion', 'Copy-LanPowerMediaData', 'Initialize-LanPowerMediaData')) {
     $functions = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
     if ($functions.Count -ne 1) { throw "Expected one media installation helper: $name" }
     . ([scriptblock]::Create($functions[0].Extent.Text))
@@ -63,20 +63,59 @@ try {
     Initialize-LanPowerMediaCertificate -Path $certificatePath -DeviceId $deviceId
     Assert-True ((Get-PfxFingerprint $certificatePath) -ceq $first -and (Get-FileHash -LiteralPath $certificatePath -Algorithm SHA256).Hash -ceq $firstFileHash) 'Reinstall must reuse the existing TLS media identity without changing its pin.'
     Assert-Rejected { Initialize-LanPowerMediaData -DataRoot ([IO.Path]::GetPathRoot($env:WINDIR)) } 'Media directory cannot be a drive root.'
-    Assert-Rejected { Initialize-LanPowerMediaData -DataRoot (Join-Path $env:SystemDrive 'RoomTN20Data') } 'Media data cannot be written to the Windows drive.'
+    Assert-Rejected { Initialize-LanPowerMediaData -DataRoot (Join-Path $env:WINDIR 'RoomTN20Data') } 'Media data cannot use an arbitrary directory on the Windows drive.'
     # Model a machine without D: using read-only Test-Path/Get-Item mocks. Any
     # attempt to create directories or query UWF would escape this early return.
     function Test-Path { param([string]$LiteralPath, [string]$PathType) return $false }
     function New-Item { throw 'Missing data drive must not create directories.' }
     function Get-CimInstance { throw 'Missing data drive must not query or change UWF.' }
-    Assert-True ((Initialize-LanPowerMediaData) -ceq '') 'Absent D: must disable media honestly without mutating another drive.'
+    Assert-True ((Initialize-LanPowerMediaData -DataRoot 'Z:\RoomTN20Data') -ceq '') 'An absent explicit drive must not be created.'
     Remove-Item function:Test-Path
     Remove-Item function:New-Item
     Remove-Item function:Get-CimInstance
-    Write-Output 'MEDIA_INSTALL_POLICY=PASS (pinned runtime/player bytes, tamper refusal, stable ephemeral PFX identity, Windows-drive/root rejection, absent-D no-op)'
+    Assert-True ((Get-LanPowerMediaRoot) -ieq (Join-Path ([IO.Path]::GetPathRoot($env:WINDIR)) 'RoomTN20Data')) 'Default media follows the Windows installation drive.'
+    $sourceMedia = Join-Path $testRoot 'old-media'
+    $targetMedia = Join-Path $testRoot 'new-media'
+    [void][IO.Directory]::CreateDirectory($sourceMedia)
+    [void][IO.Directory]::CreateDirectory($targetMedia)
+    [IO.File]::WriteAllText((Join-Path $sourceMedia 'content.bin'), 'old advertising')
+    Copy-LanPowerMediaData $sourceMedia $targetMedia
+    Copy-LanPowerMediaData $sourceMedia $targetMedia
+    Assert-True ((Get-Content -LiteralPath (Join-Path $targetMedia 'content.bin') -Raw) -ceq 'old advertising') 'Migration is repeatable and retains content.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $sourceMedia 'content.bin')) 'Migration retains the original files.'
+    [IO.File]::WriteAllText((Join-Path $targetMedia 'content.bin'), 'new advertising')
+    Assert-Rejected { Copy-LanPowerMediaData $sourceMedia $targetMedia } 'Migration refuses conflicting destination content.'
+    $script:excluded = $false
+    $script:currentExcluded = $false
+    $script:added = 0
+    function Test-Path { param($LiteralPath, $PathType) return $true }
+    function Get-CimInstance {
+        param($Namespace, $ClassName, $ErrorAction)
+        if ($ClassName -eq 'UWF_Filter') { return [pscustomobject]@{ CurrentEnabled = $true } }
+        return @(
+            [pscustomobject]@{ DriveLetter = ([IO.Path]::GetPathRoot($env:WINDIR)).TrimEnd('\'); CurrentSession = $true; Protected = $true },
+            [pscustomobject]@{ DriveLetter = ([IO.Path]::GetPathRoot($env:WINDIR)).TrimEnd('\'); CurrentSession = $false; Protected = $true }
+        )
+    }
+    function Invoke-CimMethod {
+        param($InputObject, $MethodName, $Arguments, $ErrorAction)
+        if ($Arguments.FileName -cne '\RoomTN20Data') { throw 'Unexpected exclusion path.' }
+        if ($MethodName -eq 'AddExclusion') { $script:excluded = $true; $script:added++; return @{ReturnValue=0} }
+        return @{ReturnValue=0; bFound=($script:excluded -and (-not $InputObject.CurrentSession -or $script:currentExcluded))}
+    }
+    Initialize-LanPowerMediaExclusion -DataRoot (Get-LanPowerMediaRoot)
+    Initialize-LanPowerMediaExclusion -DataRoot (Get-LanPowerMediaRoot)
+    Assert-True ($script:added -eq 1) 'The next-session exclusion is added once.'
+    Assert-Rejected { Initialize-LanPowerMediaExclusion -DataRoot (Get-LanPowerMediaRoot) -VerifyCurrent } 'A protected current session without its exclusion must reject volatile advertising.'
+    $script:currentExcluded = $true
+    Initialize-LanPowerMediaExclusion -DataRoot (Get-LanPowerMediaRoot) -VerifyCurrent
+    Remove-Item function:Invoke-CimMethod
+    Remove-Item function:Test-Path
+    Remove-Item function:Get-CimInstance
+    Write-Output 'MEDIA_INSTALL_POLICY=PASS (pinned runtime/player bytes, tamper refusal, stable ephemeral PFX identity, dedicated Windows path, repeatable migration, UWF exclusion, absent-drive no-op)'
 }
 finally {
-    foreach ($function in @('Test-Path','New-Item','Get-CimInstance')) {
+    foreach ($function in @('Test-Path','New-Item','Get-CimInstance','Invoke-CimMethod')) {
         if (Test-Path ('function:' + $function)) { Remove-Item ('function:' + $function) -ErrorAction SilentlyContinue }
     }
     if (Test-Path -LiteralPath $testRoot) {

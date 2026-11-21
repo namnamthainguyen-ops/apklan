@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$config = [pscustomobject]@{ runtimeDataRoot = '' }
 Set-StrictMode -Version Latest
 $sourcePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'client\StandaloneAgent.ps1'
 $tokens = $null

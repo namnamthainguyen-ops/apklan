@@ -210,7 +210,15 @@ function Initialize-LanPowerUwfFeature {
 function Invoke-LanPowerUwfPreparation {
     param([switch]$SkipUwfPreparation, [string]$InstallPath = "$env:ProgramData\LanPowerStandalone")
     if ($SkipUwfPreparation) { return }
-    try { $result = Initialize-LanPowerUwfFeature -InstallPath $InstallPath; if ($result) { Write-Host $result.Message } }
+    try {
+        $result = Initialize-LanPowerUwfFeature -InstallPath $InstallPath
+        if ($result) {
+            Write-Host $result.Message
+            if ($result.FeatureState -eq 'Enabled' -and (Test-Path -LiteralPath (Get-LanPowerMediaRoot))) {
+                Initialize-LanPowerMediaExclusion -DataRoot (Get-LanPowerMediaRoot)
+            }
+        }
+    }
     catch { Write-Warning ('The power agent was installed, but UWF preparation could not finish: ' + $_.Exception.Message) }
 }
 
@@ -309,8 +317,63 @@ function Set-LanPowerReadOnlyDisplaySecurity {
     }
 }
 
+function Get-LanPowerMediaRoot {
+    return Join-Path ([IO.Path]::GetPathRoot($env:WINDIR)) 'RoomTN20Data'
+}
+
+function Initialize-LanPowerMediaExclusion {
+    param([string]$DataRoot, [switch]$VerifyCurrent)
+    $full = [IO.Path]::GetFullPath($DataRoot).TrimEnd('\')
+    if ($full -ine (Get-LanPowerMediaRoot)) { return }
+    if (-not (Test-Path -LiteralPath (Join-Path (Get-LanPowerNativeSystemDirectory) 'uwfmgr.exe'))) { return }
+    if ($VerifyCurrent) {
+        $filter = Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Filter -ErrorAction Stop
+        if (-not $filter.CurrentEnabled) { return }
+    }
+    $volumes = @(Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Volume -ErrorAction Stop |
+        Where-Object { ([string]$_.DriveLetter).TrimEnd(':') -ieq ([IO.Path]::GetPathRoot($full)).TrimEnd([char[]]'\:') })
+    $relative = $full.Substring(([IO.Path]::GetPathRoot($full)).Length - 1)
+    $volume = $volumes | Where-Object { $_.CurrentSession -eq [bool]$VerifyCurrent } | Select-Object -First 1
+    if (-not $volume) { throw 'MEDIA_UWF_VOLUME_UNAVAILABLE: Cannot verify advertising storage.' }
+    if ($VerifyCurrent -and -not $volume.Protected) { return }
+    $check = Invoke-CimMethod -InputObject $volume -MethodName FindExclusion -Arguments @{ FileName = $relative } -ErrorAction Stop
+    if ([uint32]$check.ReturnValue -ne 0) { throw 'MEDIA_UWF_EXCLUSION_QUERY_FAILED' }
+    if ($check.bFound) { return }
+    if ($VerifyCurrent) { throw 'MEDIA_UWF_EXCLUSION_RESTART_REQUIRED: Restart Windows after preparing the advertising folder exclusion.' }
+    $added = Invoke-CimMethod -InputObject $volume -MethodName AddExclusion -Arguments @{ FileName = $relative } -ErrorAction Stop
+    if ([uint32]$added.ReturnValue -ne 0) { throw 'MEDIA_UWF_EXCLUSION_ADD_FAILED' }
+    $check = Invoke-CimMethod -InputObject $volume -MethodName FindExclusion -Arguments @{ FileName = $relative } -ErrorAction Stop
+    if ([uint32]$check.ReturnValue -ne 0 -or -not $check.bFound) { throw 'MEDIA_UWF_EXCLUSION_VERIFY_FAILED' }
+}
+
+function Copy-LanPowerMediaData {
+    param([string]$Source, [string]$Destination)
+    if (-not (Test-Path -LiteralPath $Source -PathType Container)) { return }
+    foreach ($path in @($Source, $Destination)) {
+        if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'MEDIA_MIGRATION_REPARSE_REJECTED' }
+    }
+    foreach ($entry in @(Get-ChildItem -LiteralPath $Source -Force)) {
+        if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'MEDIA_MIGRATION_REPARSE_REJECTED' }
+        $target = Join-Path $Destination $entry.Name
+        if ($entry.PSIsContainer) {
+            if (-not (Test-Path -LiteralPath $target)) { [void][IO.Directory]::CreateDirectory($target) }
+            Copy-LanPowerMediaData -Source $entry.FullName -Destination $target
+        } else {
+            if (Test-Path -LiteralPath $target) {
+                if ((Get-FileHash -LiteralPath $entry.FullName).Hash -cne (Get-FileHash -LiteralPath $target).Hash) { throw 'MEDIA_MIGRATION_CONFLICT: Existing content was preserved.' }
+                continue
+            }
+            $temporary = $target + '.migration-' + [Guid]::NewGuid().ToString('N')
+            try {
+                [IO.File]::Copy($entry.FullName, $temporary)
+                [IO.File]::Move($temporary, $target)
+            } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force } }
+        }
+    }
+}
+
 function Initialize-LanPowerMediaData {
-    param([string]$DataRoot = 'D:\RoomTN20Data')
+    param([string]$DataRoot = (Get-LanPowerMediaRoot))
     $full = [IO.Path]::GetFullPath($DataRoot).TrimEnd('\')
     if ($full -ieq [IO.Path]::GetPathRoot($full).TrimEnd('\')) { throw 'Media data requires a dedicated directory.' }
     $ancestor = $full
@@ -319,10 +382,11 @@ function Initialize-LanPowerMediaData {
         $ancestor = [IO.Path]::GetDirectoryName($ancestor)
     }
     $drive = [IO.Path]::GetPathRoot($full).TrimEnd('\')
-    if ($drive -ieq ($env:SystemDrive)) { throw 'Media data must be on an unprotected data drive, separate from Windows.' }
+    $windowsDrive = [IO.Path]::GetPathRoot($env:WINDIR).TrimEnd('\')
+    if ($drive -ieq $windowsDrive -and $full -ine (Get-LanPowerMediaRoot)) { throw 'Media data on Windows must use the dedicated RoomTN20Data directory.' }
     if (-not (Test-Path -LiteralPath ([IO.Path]::GetPathRoot($full)))) { return '' }
     # A missing UWF provider is expected on Server; an installed provider must be readable.
-    if (Test-Path -LiteralPath (Join-Path (Get-LanPowerNativeSystemDirectory) 'uwfmgr.exe')) {
+    if ($drive -ine $windowsDrive -and (Test-Path -LiteralPath (Join-Path (Get-LanPowerNativeSystemDirectory) 'uwfmgr.exe'))) {
         try {
             $volumes = @(Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Volume -ErrorAction Stop)
             $dataVolumes = @($volumes | Where-Object { ([string]$_.DriveLetter).TrimEnd(':') -ieq $drive.TrimEnd(':') })
@@ -352,6 +416,8 @@ function Initialize-LanPowerMediaData {
         }
         Set-Acl -LiteralPath $path -AclObject $acl
     }
+    Initialize-LanPowerMediaExclusion -DataRoot $full
+    Initialize-LanPowerMediaExclusion -DataRoot $full -VerifyCurrent
     return $full
 }
 
@@ -534,7 +600,7 @@ function Test-LanPowerHandshakeSignature {
 
 function Wait-LanPowerInstalledAgent {
     param([string]$InstallPath, [string]$RoomKey, [int]$Port = 17840,
-        [string]$ExpectedVersion = '1.4.8', [int]$ExpectedVersionCode = 22,
+        [string]$ExpectedVersion = '1.4.9', [int]$ExpectedVersionCode = 23,
         [switch]$RequireMedia,
         [ValidateRange(1, 60)][int]$TimeoutSeconds = 20, [string]$ManagementKey)
     if ($RoomKey) { $ManagementKey = ConvertTo-LanPowerManagementKey $RoomKey }
@@ -675,10 +741,23 @@ function Invoke-LanPowerInstall {
     $mediaSetupMessage = 'Media preparation was skipped.'
     if (-not $SkipMediaSetup) {
         try {
-            $dataRoot = if ($previous -and $previous.PSObject.Properties['runtimeDataRoot'] -and $previous.runtimeDataRoot) { [string]$previous.runtimeDataRoot } else { 'D:\RoomTN20Data' }
+            $dataRoot = Get-LanPowerMediaRoot
             $mediaDataRoot = Initialize-LanPowerMediaData -DataRoot $dataRoot
-            if ($mediaDataRoot) { Initialize-LanPowerMediaCertificate -Path (Join-Path $InstallPath 'media-certificate.pfx') -DeviceId $deviceId; $mediaSetupMessage = 'Data drive and media certificate prepared.' }
-            else { $mediaSetupMessage = 'D: was not found. Advertising requires an unprotected D: drive and reinstall.'; Write-Warning ('MEDIA_DATA_UNAVAILABLE: ' + $mediaSetupMessage) }
+            if ($previous -and $previous.PSObject.Properties['runtimeDataRoot'] -and $previous.runtimeDataRoot -and
+                [IO.Path]::GetFullPath([string]$previous.runtimeDataRoot).TrimEnd('\') -ine $dataRoot) {
+                $oldRoot = [IO.Path]::GetFullPath([string]$previous.runtimeDataRoot).TrimEnd('\')
+                $ancestor = $oldRoot
+                while ($ancestor) {
+                    if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'MEDIA_MIGRATION_REPARSE_REJECTED' }
+                    $ancestor = [IO.Path]::GetDirectoryName($ancestor)
+                }
+                foreach ($folder in @('Media', 'State')) {
+                    Copy-LanPowerMediaData -Source (Join-Path $oldRoot $folder) -Destination (Join-Path $dataRoot $folder)
+                }
+                [void](Initialize-LanPowerMediaData -DataRoot $dataRoot)
+            }
+            if ($mediaDataRoot) { Initialize-LanPowerMediaCertificate -Path (Join-Path $InstallPath 'media-certificate.pfx') -DeviceId $deviceId; $mediaSetupMessage = 'Windows-drive media storage and certificate prepared.' }
+            else { $mediaSetupMessage = 'Windows media storage was not prepared. Reinstall the current client.'; Write-Warning ('MEDIA_DATA_UNAVAILABLE: ' + $mediaSetupMessage) }
         }
         catch {
             $mediaDataRoot = ''
@@ -699,8 +778,8 @@ function Invoke-LanPowerInstall {
         runtimeDataRoot = $mediaDataRoot
         runtimeSetupMessage = $mediaSetupMessage
         runtimePort = 17842
-        version = '1.4.8'
-        versionCode = 22
+        version = '1.4.9'
+        versionCode = 23
         installedAt = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json
     Set-LanPowerAtomicFile $configPath ([Text.Encoding]::ASCII.GetBytes($newConfig))

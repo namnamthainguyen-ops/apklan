@@ -22,8 +22,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("TN20 - Trình cài client quản lý máy tính trong mạng LAN")]
 [assembly: AssemblyCompany("Công ty TNHH TN20")]
 [assembly: AssemblyProduct("Room TN20")]
-[assembly: AssemblyVersion("1.4.8.0")]
-[assembly: AssemblyFileVersion("1.4.8.0")]
+[assembly: AssemblyVersion("1.4.9.0")]
+[assembly: AssemblyFileVersion("1.4.9.0")]
 [assembly: TargetFramework(".NETFramework,Version=v4.7.2", FrameworkDisplayName = ".NET Framework 4.7.2")]
 
 namespace LanPower.ClientSetup
@@ -424,10 +424,10 @@ namespace LanPower.ClientSetup
                         System.Collections.ObjectModel.Collection<PSObject> configs = powershell.Invoke();
                         ThrowErrors(powershell);
                         bool mediaReady = configs.Count == 1 && configs[0].Properties["runtimeDataRoot"] != null && !String.IsNullOrEmpty(Convert.ToString(configs[0].Properties["runtimeDataRoot"].Value));
-                        result.MediaNotice = mediaReady ? "Quảng cáo lưu trên D:, mở khi người dùng đăng nhập." : "Khóa/quảng cáo chưa bật: cần D: không đóng băng rồi cài lại.";
+                        result.MediaNotice = mediaReady ? "Quảng cáo lưu trên ổ Windows, mở khi người dùng đăng nhập." : "Khóa/quảng cáo chưa bật: kiểm tra thư mục quảng cáo trên ổ Windows rồi cài lại.";
                         result.Message += mediaReady
-                            ? "\n\nẢnh/video và trạng thái khóa lưu trên D:\\RoomTN20Data. Đăng nhập tài khoản sử dụng máy để hiện quảng cáo; mỗi phòng thay nội dung riêng trong app."
-                            : "\n\nKhóa/quảng cáo chưa bật: cần ổ D: chưa đóng băng rồi cài lại. Chức năng nguồn vẫn sử dụng được.";
+                            ? "\n\nẢnh/video và trạng thái khóa lưu trong RoomTN20Data trên ổ Windows. Đăng nhập tài khoản sử dụng máy để hiện quảng cáo; mỗi phòng thay nội dung riêng trong app."
+                            : "\n\nKhóa/quảng cáo chưa bật: kiểm tra thư mục RoomTN20Data trên ổ Windows rồi cài lại. Chức năng nguồn vẫn sử dụng được.";
                     }
                     if (prepareUwf)
                     {
@@ -446,6 +446,12 @@ namespace LanPower.ClientSetup
                                 result.UwfNotSupported = Convert.ToString(features[0].Properties["Status"].Value) == "not-supported";
                                 result.RestartRequired = Convert.ToBoolean(features[0].Properties["RestartRequired"].Value);
                                 result.UwfWarning = !result.UwfNotSupported && state != "Enabled" && state != "EnablePending";
+                                if (state == "Enabled") {
+                                    powershell.Commands.Clear();
+                                    powershell.AddScript("if (Test-Path -LiteralPath (Get-LanPowerMediaRoot)) { Initialize-LanPowerMediaExclusion -DataRoot (Get-LanPowerMediaRoot) }");
+                                    powershell.Invoke();
+                                    ThrowErrors(powershell);
+                                }
                                 result.Message += result.UwfNotSupported
                                     ? "\n\nWindows này không hỗ trợ UWF. Client quản lý nguồn đã được cài; các nút đóng băng sẽ không dùng trên máy này."
                                     : result.UwfWarning

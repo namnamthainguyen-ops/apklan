@@ -1,4 +1,4 @@
-# Room TN20 — Windows 1.4.8 / Android 1.5.4
+# Room TN20 — Windows 1.4.9 / Android 1.5.4
 
 [![Verify Room TN20](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml/badge.svg)](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml)
 
@@ -31,13 +31,13 @@ Mỗi phòng có danh sách máy riêng. Chạm một máy để xem tên, IP, M
 Cài client **1.4.0** trên máy mẫu, nhập key phòng, cấu hình VPN nếu cần và để màn hình quảng cáo ở trạng thái mở sử dụng trước khi tạo ảnh ghost. Khi chạy trên máy đích, client tự dùng UUID phần cứng (hoặc MAC card mạng vật lý khi UUID không hợp lệ), đọc tên/MAC hiện tại; app quét phòng sẽ nhận IP và phiên bản client/UWF đang chạy. Không dùng MachineGuid/SID hay GUID sao chép trong file cấu hình để phân biệt máy. Định danh được tính lúc khởi động nên vẫn ổn định khi C: đóng băng, không cần ghi lại C: hoặc nhập lại key trên từng máy cùng phòng.
 
 - Giữ key, phạm vi VPN và phần mềm đã có trong ảnh ghost; client không tự cài lại toàn bộ ứng dụng Windows. Việc tổng quát hóa Windows/driver vẫn thuộc quy trình tạo ghost của bạn.
-- Quảng cáo giữ được nếu ổ D: đã có dữ liệu `D:\RoomTN20Data`; nếu chỉ ghost C: sang D: trống, gửi quảng cáo một lần từ app. Những lần sau chỉ tải phần thiếu.
+- Từ client 1.4.9, quảng cáo được lưu trong RoomTN20Data trên ổ Windows và có thể đi cùng ảnh ghost của ổ này. Nếu ảnh ghost chưa có nội dung, gửi quảng cáo một lần từ app.
 - Ghost sang phòng khác: cài đè với key phòng mới. Với máy ảo, cấp UUID phần cứng riêng cho từng bản clone. Khi nâng cấp từ bản định danh cũ, app có thể giữ một dòng máy cũ offline; có thể xóa dòng cũ sau khi kiểm tra máy mới.
 - Dùng lại tệp chỉ sau khi kiểm tra SHA-256 của bản sao trên máy. Tệp bỏ ngừng phát sau khi đồng bộ thành công; giữ tối đa một bộ trước để dự phòng, rồi dọn các bộ cũ hơn. Tải lỗi không thay bộ đang phát. Cập nhật **cả APK và client 1.4.0** để dùng đồng bộ này; APK báo cần nâng cấp khi gặp client cũ.
 
 ## Tải về
 
-- **[Tải bộ cài client Windows 1.4.8 — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.8.exe)** — nhập key phòng rồi chọn **Cài / Cài đè**; chứa sẵn phần khóa/quảng cáo và tự chuẩn bị UWF khi được hỗ trợ.
+- **[Tải bộ cài client Windows 1.4.9 — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.9.exe)** — nhập key phòng rồi chọn **Cài / Cài đè**; chứa sẵn phần khóa/quảng cáo và tự chuẩn bị UWF khi được hỗ trợ.
 - **[Tải APK Room TN20 1.5.4](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.5.4.apk)** — Android 8.0 trở lên, cùng chữ ký để nâng cấp và giữ dữ liệu phòng.
 - [Tải toàn bộ mã nguồn và bộ cài Windows ZIP](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip).
 - [Xem script cài Windows online](https://github.com/namnamthainguyen-ops/apklan/blob/main/install-online.ps1).
@@ -55,7 +55,7 @@ Tự chọn key gồm đúng **8 ký tự ASCII in được**, phân biệt hoa/
 
 ### Bước 2 — Cài một file EXE trên từng máy Windows
 
-1. [Tải `RoomTN20-ClientSetup-1.4.8.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.8.exe), có thể chép cùng file này sang tất cả máy client. Để dùng quảng cáo, chuẩn bị ổ D: chưa đóng băng.
+1. [Tải `RoomTN20-ClientSetup-1.4.9.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.9.exe), có thể chép cùng file này sang tất cả máy client. Để dùng quảng cáo, chuẩn bị ổ thư mục quảng cáo trên ổ Windows.
 2. Mở file với quyền Administrator, nhập key của phòng rồi bấm **Cài / Cài đè**. Không cần gỡ bản cũ; định danh theo phần cứng và mạng VPN đã lưu được giữ lại nếu không nhập cấu hình mới.
 3. Bộ cài kiểm tra client đã phản hồi đúng khóa/phiên bản, báo **Cài đặt thành công** rồi tự đóng sau 3 giây. Nếu UWF cần restart, thông báo sẽ ghi rõ; bạn tự khởi động lại khi sẵn sàng.
 
@@ -66,7 +66,7 @@ EXE tự cài/chuẩn bị UWF khi hệ điều hành hỗ trợ, không cần c
 **Windows IoT Enterprise/Enterprise/Education:** nếu chuẩn bị UWF bị lỗi thật, bộ cài giữ thông báo và không tự đóng như một lần cài hoàn tất. Mã lỗi DISM, phiên bản Windows và đường dẫn nhật ký được hiển thị để xử lý đúng nguyên nhân. Nhật ký chuẩn bị UWF nằm tại `C:\ProgramData\LanPowerStandalone\uwf-preparation.log`. Thiếu nguồn thành phần Windows hoặc chính sách Windows Update/WSUS có thể cần sửa nguồn cài tương ứng; bộ cài không báo UWF thành công khi kiểm tra thất bại.
 
 ```text
-EXE SHA-256: 95FCCA46B21A411742CA34A4E18DFE4F7FC514F0CA0474CC1D217F7372FA18E0
+EXE SHA-256: 59A96E54B4E8A396C1C1EFAF61BC890FD72FE33C23CE84B580504B87B1B6922B
 ```
 
 Bản EXE hiện chưa ký Authenticode; Windows có thể hiển thị nhà xuất bản chưa xác định. Thương hiệu hiển thị trong ứng dụng là **Room TN20 — Công ty TNHH TN20**, website **20.com.vn**.
@@ -81,7 +81,7 @@ $ErrorActionPreference = 'Stop'
 $key = Read-Host 'Nhap key phong gom 8 ky tu, khong khoang trang'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/install-online.ps1'
-$expected = '32FED6C5AAD3A7EC1CA525CD794C0092B185E603A9F7A9D777919ADEDD83932C'
+$expected = '67E3CAAAB395E47F1F6116433E3CCCAE8A101B6AE4A08483DC8220BF4748F508'
 $file = Join-Path $env:TEMP ('lanpower-install-' + [Guid]::NewGuid().ToString('N') + '.ps1')
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
 if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $expected) { throw 'Installer checksum mismatch.' }
@@ -124,17 +124,17 @@ Nên dùng MP4 mã hóa H.264/AAC và ảnh có kích thước phù hợp màn h
 
 Ảnh/video được truyền qua TLS với chứng thư máy đã được xác thực bằng key phòng; mỗi yêu cầu còn được ký HMAC và kiểm tra thời gian, nonce, dung lượng, SHA-256. Tối đa 20 mục, 128 MiB mỗi tệp và 256 MiB cho một bộ. Nội dung chỉ được dùng làm ảnh/video, không cài thêm chương trình. Nếu mất mạng hoặc tải lỗi, máy tiếp tục giữ bộ đã xác minh trước đó.
 
-Windows lưu ảnh/video tại `D:\RoomTN20Data\Media` và trạng thái khóa tại `D:\RoomTN20Data\State`. Dữ liệu được giữ qua lần khởi động lại; trạng thái khóa cuối cùng được áp dụng lại khi người dùng đăng nhập. Có thể thay nội dung khi C: vẫn đóng băng, không cần gỡ UWF hoặc loại trừ thư mục chương trình/khóa quản trị trên C:. Thư mục D: chỉ SYSTEM/Administrators được ghi; tài khoản sử dụng máy chỉ có quyền đọc.
+Từ client 1.4.9, ảnh/video và trạng thái khóa nằm trong RoomTN20Data trên ổ cài Windows, thường là C:\RoomTN20Data. Bộ cài cấu hình ngoại lệ UWF riêng cho thư mục này để dữ liệu được giữ sau khởi động lại. Ngoại lệ mới áp dụng ở phiên sau. SYSTEM/Administrators có quyền ghi và người dùng có quyền đọc. Nội dung cũ được sao chép từ đường dẫn đã cấu hình nếu còn truy cập được, bản gốc được giữ lại.
 
 Đây là **khóa sử dụng Room TN20**: player hiển thị trong phiên người dùng, hỗ trợ nhiều màn hình và phát nội dung đã tải kể cả khi mất mạng. Cơ chế không thay màn hình đăng nhập Windows và không chặn Ctrl+Alt+Del. Nếu cần hạn chế người dùng thoát ứng dụng kiểu kiosk, dùng tài khoản thường và cấu hình kiosk/Windows Shell Launcher phù hợp. [Microsoft: phiên dịch vụ](https://learn.microsoft.com/en-us/windows/win32/services/interactive-services), [Shell Launcher](https://learn.microsoft.com/en-us/windows/iot/iot-enterprise/customize/shell-launcher), [UWF](https://learn.microsoft.com/en-us/windows/configuration/unified-write-filter/).
 
 **Mở khóa khẩn cấp tại máy:** đăng nhập tài khoản quản trị, mở PowerShell bằng quyền Administrator rồi chạy:
 
 ```powershell
-& 'C:\ProgramData\LanPowerStandalone\Display\RoomTN20.Player.exe' --emergency-unlock --data-root 'D:\RoomTN20Data'
+& 'C:\ProgramData\LanPowerStandalone\Display\RoomTN20.Player.exe' --emergency-unlock --data-root 'C:\RoomTN20Data'
 ```
 
-Lệnh phục hồi cần quyền quản trị và ghi trạng thái trên D:, nên dùng được khi C: đang đóng băng. Không chia sẻ tài khoản quản trị hoặc key phòng cho người sử dụng máy. Gỡ client giữ lại ảnh/video trên D: để quản trị viên quyết định sử dụng tiếp.
+Lệnh phục hồi cần quyền quản trị và ghi trạng thái vào thư mục quảng cáo đã được loại trừ UWF. Gỡ client giữ lại dữ liệu quảng cáo để quản trị viên quyết định sử dụng tiếp.
 
 Các phần tiếp theo hướng dẫn cài offline, cấu hình Wake-on-LAN và đóng băng ổ C bằng UWF.
 
