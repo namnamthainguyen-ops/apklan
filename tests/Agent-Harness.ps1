@@ -35,6 +35,7 @@ function Invoke-LanPowerSessionLock {
     if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'fail-lock')) { throw 'TEST_LOCK_UI_UNAVAILABLE' }
     $script:TestLocked = $Action -eq 'lock'
     [Console]::WriteLine("TEST_SESSION_LOCK=$Action")
+    if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'pending-lock')) { throw 'LOCK_PLAYER_UNCONFIRMED: Desired state saved; display has not confirmed.' }
     return "Interactive display confirmed $Action."
 }
 '@

@@ -606,7 +606,9 @@ public final class MainActivity extends Activity {
                                 : target.desktopBlockReason();
                         if (target != null && result.isEmpty()) {
                             try { result = transport.desktop(room.key, target, action, value); }
-                            catch (Exception error) { result = readable(error); }
+                            catch (java.net.SocketTimeoutException error) { result = "CHƯA XÁC NHẬN — Máy có thể đã thực hiện lệnh; không tự gửi lệnh mới"; }
+                            catch (LanTransport.CommandRejectedException error) { result = "BỊ TỪ CHỐI — " + readable(error); }
+                            catch (Exception error) { result = "LỖI KẾT NỐI — " + readable(error); }
                         }
                         history.record(room.id, selectedDevice.listKey(), openWeb ? "Mở website" : "Đóng ứng dụng", result);
                         return selectedDevice.hostname + " (" + selectedDevice.ip + ") • " + result;
@@ -675,8 +677,9 @@ public final class MainActivity extends Activity {
         for (ManagedDevice candidate : room.devices.values()) if (candidate.online && !scanFailed && candidate.supports("wolrelay")) { eligibleRelay = candidate.copy(); break; }
         final ManagedDevice relay = eligibleRelay;
         final boolean lockAction = "lock".equals(action) || "unlock".equals(action);
+        final boolean verifyState = lockAction || "freeze".equals(action) || "unfreeze".equals(action) || "wake".equals(action);
         final List<String> confirmationTargets;
-        try { confirmationTargets = lockAction ? scanTargets(room) : Collections.emptyList(); }
+        try { confirmationTargets = verifyState ? scanTargets(room) : Collections.emptyList(); }
         catch (Exception error) { statusMessage = "Không xác nhận được màn hình: " + readable(error); render(); return; }
         setBusy(true, "Đang " + actionLabel(action) + " cho " + targets.size() + " máy…");
         executor.execute(() -> {
@@ -714,18 +717,29 @@ public final class MainActivity extends Activity {
                             if (localError != null) throw localError;
                             result = localResult;
                         }
-                    } else result = transport.command(key, device, action);
-                    if (lockAction) waitingLock.put(device.listKey(), device);
+                    } else result = transport.commandWithProgress(key, device, action, stage -> postResult(() -> {
+                        statusMessage = device.hostname + " • " + stage;
+                        status.setText(statusMessage);
+                    }));
+                    if (verifyState) {
+                        waitingLock.put(device.listKey(), device);
+                        history.record(room.id, device.listKey(), actionLabel(action), "wake".equals(action)
+                                ? "ĐÃ GỬI TÍN HIỆU BẬT • Đang chờ máy online" : "ĐÃ NHẬN • Đang kiểm tra trạng thái thực");
+                    }
                     else {
                         successes++;
                         boolean pending = "wake".equals(action) || "shutdown".equals(action) || "restart".equals(action) || "update-client".equals(action);
-                        results.add(device.hostname + (pending ? ": ĐÃ GỬI — " : ": ĐÃ XÁC NHẬN — ") + result);
+                        results.add(device.hostname + (pending ? ": ĐÃ NHẬN — Chưa xác nhận hoàn tất • " : ": ĐÃ XÁC NHẬN — ") + result);
                         if ("restart".equals(action)) postResult(() -> room.trackRestart(device, System.currentTimeMillis()));
                     }
                 } catch (LanTransport.CommandRejectedException error) {
                     results.add(device.hostname + ": BỊ TỪ CHỐI — " + (lockAction ? roomFeatureError(error) : readable(error)));
                 } catch (java.net.SocketTimeoutException error) {
-                    results.add(device.hostname + ": CHƯA XÁC NHẬN — Máy có thể đã thực hiện lệnh");
+                    if (verifyState) {
+                        waitingLock.put(device.listKey(), device);
+                        history.record(room.id, device.listKey(), actionLabel(action), "CHỜ XÁC NHẬN TRẠNG THÁI • " + readable(error));
+                    }
+                    else results.add(device.hostname + ": CHƯA XÁC NHẬN — Máy có thể đã thực hiện lệnh; không tự gửi lệnh mới");
                     if ("restart".equals(action)) postResult(() -> room.trackRestart(device, System.currentTimeMillis()));
                 } catch (Exception error) {
                     results.add(device.hostname + ": LỖI — " + (lockAction ? roomFeatureError(error) : readable(error)));
@@ -736,19 +750,31 @@ public final class MainActivity extends Activity {
             }
             if (!waitingLock.isEmpty()) {
                 try {
-                    List<ManagedDevice> confirmed = transport.discover(key, confirmationTargets);
                     Map<String, ManagedDevice> byId = new LinkedHashMap<>();
-                    for (ManagedDevice value : confirmed) byId.put(value.endpointKey(), value);
-                    String expected = "lock".equals(action) ? "locked" : "unlocked";
+                    for (int attempt = 0; attempt < 3 && !destroyed; attempt++) {
+                        postResult(() -> status.setText("Đang xác nhận trạng thái thực • " + actionLabel(action)));
+                        for (ManagedDevice value : transport.discover(key, confirmationTargets)) byId.put(value.endpointKey(), value);
+                        boolean complete = true;
+                        for (ManagedDevice requested : waitingLock.values())
+                            if (!CommandConfirmation.matches(action, byId.get(requested.endpointKey()))) complete = false;
+                        if (complete) break;
+                    }
                     for (ManagedDevice requested : waitingLock.values()) {
                         ManagedDevice actual = byId.get(requested.endpointKey());
-                        if (actual != null && actual.lockAuthenticated && expected.equals(actual.lockState)) {
+                        if (CommandConfirmation.matches(action, actual)) {
                             successes++;
-                            results.add(requested.hostname + ": ĐÃ XÁC NHẬN — " + actual.lockDescription());
-                        } else results.add(requested.hostname + ": CHƯA XÁC NHẬN — " + (actual == null ? "Máy chưa phản hồi" : actual.lockDescription()));
+                            results.add(requested.hostname + ": ĐÃ XÁC NHẬN — " + CommandConfirmation.description(action, actual));
+                        } else results.add(requested.hostname + ": CHƯA XÁC NHẬN — " + (actual == null ? "Máy chưa phản hồi; chưa thể kết luận thất bại" : CommandConfirmation.description(action, actual)));
                         history.record(room.id, requested.listKey(), actionLabel(action), results.get(results.size() - 1));
                     }
-                    postResult(() -> { room.applyScan(confirmed, System.currentTimeMillis()); try { repository.save(rooms.values()); } catch (Exception ignored) { } });
+                    postResult(() -> {
+                        for (ManagedDevice actual : byId.values()) {
+                            actual.online = true;
+                            actual.lastSeen = System.currentTimeMillis();
+                            room.remember(actual);
+                        }
+                        try { repository.save(rooms.values()); } catch (Exception ignored) { }
+                    });
                 } catch (Exception error) {
                     for (ManagedDevice requested : waitingLock.values()) {
                         String result = requested.hostname + ": CHƯA XÁC NHẬN — " + readable(error);
@@ -759,8 +785,8 @@ public final class MainActivity extends Activity {
             }
             final int successCount = successes;
             postResult(() -> {
-                setBusy(false, "Hoàn tất " + actionLabel(action) + ": " + successCount + "/" + targets.size() + " máy nhận yêu cầu");
-                showPrompt(new AlertDialog.Builder(this).setTitle("Kết quả " + successCount + "/" + targets.size())
+                setBusy(false, "Đã xử lý " + actionLabel(action) + " cho " + targets.size() + " máy • Xem kết quả xác nhận từng máy");
+                showPrompt(new AlertDialog.Builder(this).setTitle("Kết quả từng máy")
                         .setMessage(String.join("\n\n", results)).setPositiveButton("Đóng", (dialog, which) -> refresh()).create());
             });
         });

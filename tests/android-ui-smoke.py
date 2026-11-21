@@ -371,7 +371,9 @@ def close_result(expected_error=None):
                     "Per-device operation results did not appear")
     if expected_error:
         text = " ".join(node.attrib.get("text", "") for node in tree.iter("node"))
-        assert expected_error in text, f"Partial failure was not shown: {text}"
+        assert expected_error in text, f"Expected result was not shown: {text}"
+        if expected_error == "ĐÃ XÁC NHẬN":
+            assert "BỊ TỪ CHỐI" not in text and "CHƯA XÁC NHẬN" not in text, f"Late lock confirmation was reported incorrectly: {text}"
     tap_text("Đóng", lambda tree: not has_button(tree, "Đóng"))
     wait_idle()
 
@@ -524,6 +526,13 @@ for name, expected in [(ROOM_A, {"CI-A-01", "CI-A-02"}), (ROOM_B, {"CI-B-03"})]:
     wait_text(f"Chọn tất cả Online · {len(expected)}")
     home()
 open_room(ROOM_A)
+control("/set", {"devices": {device_id: {"pendingLockActions": ["lock", "unlock"]} for device_id in IDS_A}})
+tap(by_id("select_all"), lambda tree: any(by_id("select_all")(n.attrib) and n.get("checked") == "true" for n in tree.iter("node")))
+bulk("lock", expected_error="ĐÃ XÁC NHẬN")
+bulk("unlock", expected_error="ĐÃ XÁC NHẬN")
+control("/set", {"devices": {device_id: {"pendingLockActions": []} for device_id in IDS_A}})
+print("ANDROID_LATE_LOCK_CONFIRMATION=PASS (legacy signed rejection verified against actual signed screen state)")
+tap(by_id("select_all"), lambda tree: any(by_id("select_all")(n.attrib) and n.get("checked") == "false" for n in tree.iter("node")))
 second = sorted(IDS_A)[1]
 control("/set", {"devices": {second: {"online": False}}})
 refresh()
@@ -546,12 +555,12 @@ home()
 open_room(ROOM_A)
 tap(lambda node: node.get("content-desc") == "device:CI-A-01",
     lambda tree: any(n.get("text") == "Địa chỉ MAC" for n in tree.iter("node")))
-tap_text("Nhật ký máy", lambda tree: any(n.get("text", "").startswith("Nhật ký •") for n in tree.iter("node")))
+tap_text("Nhật ký máy", lambda tree: any(n.get("text", "").startswith("Nhật ký máy •") for n in tree.iter("node")))
 tree = ui()
 assert any("Đóng băng" in n.get("text", "") for n in tree.iter("node")), "Per-machine command history did not survive app restart"
 with open("emulator-evidence/device-history.png", "wb") as picture:
     subprocess.run(["adb", "exec-out", "screencap", "-p"], stdout=picture, check=True, timeout=30)
-tap_text("Đóng", lambda tree: not any(n.get("text", "").startswith("Nhật ký •") for n in tree.iter("node")))
+tap_text("‹ Quay lại", lambda tree: not any(n.get("text", "").startswith("Nhật ký máy •") for n in tree.iter("node")))
 home()
 verify_directed_vpn()
 print("ANDROID_UI_SMOKE_TEST=PASS (multiple rooms, 8-character keys, real UDP isolation, online/offline, details, bulk UWF/power/WOL, encrypted persistence)")

@@ -11,6 +11,19 @@ import javax.crypto.spec.SecretKeySpec;
 
 /** Wire-format operations shared by the app and the plain JVM tests. */
 final class LanProtocol {
+    static boolean pendingResult(String action, String message) {
+        if (message == null) return false;
+        if ("lock".equals(action) || "unlock".equals(action))
+            return java.util.regex.Pattern.compile("\\bLOCK_(PLAYER_UNCONFIRMED|NO_CONSOLE_USER|REQUEST_SUPERSEDED|UI_TIMEOUT)\\b").matcher(message).find();
+        return ("open-web".equals(action) || "close-apps".equals(action))
+                && (message.contains("DESKTOP_RESULT_UNKNOWN") || message.contains("DESKTOP_SEND_TIMEOUT")
+                    || message.startsWith("Chua xac nhan ket qua."));
+    }
+
+    static String receiptCanonical(String requestId, String deviceId, String action) {
+        return "command-received\n" + requestId + "\n" + deviceId + "\n" + action;
+    }
+
     private LanProtocol() { }
 
     static String deriveRoomKey(String value) throws Exception {

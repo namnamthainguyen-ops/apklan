@@ -33,7 +33,7 @@ def reset():
             device_id = f"00000000-0000-4000-8000-{index:012d}"
             DEVICES[device_id] = {"id": device_id, "hostname": f"CI-{room}-{index:02d}", "room": room,
                                   "mac": f"02:00:00:00:00:{index:02x}", "online": True,
-                                  "frozen": False, "pending": None, "locked": False, "mediaVersion": "none", "failActions": [], "nonces": set()}
+                                  "frozen": False, "pending": None, "locked": False, "mediaVersion": "none", "failActions": [], "pendingLockActions": [], "nonces": set()}
 
 
 def sign(key, canonical):
@@ -73,7 +73,7 @@ class Control(BaseHTTPRequestHandler):
             with LOCK:
                 for device_id, changes in body.get("devices", {}).items():
                     for key, value in changes.items():
-                        if key in {"online", "frozen", "pending", "locked", "failActions"}:
+                        if key in {"online", "frozen", "pending", "locked", "failActions", "pendingLockActions"}:
                             DEVICES[device_id][key] = value
         else:
             self.send_error(404)
@@ -132,6 +132,9 @@ def handle_request(udp, remote, data):
             if not rejected and action in {"lock", "unlock"}:
                 device["locked"] = action == "lock"
                 detail = "Interactive display confirmed " + action + "."
+                if action in device.get("pendingLockActions", []):
+                    status = "rejected"
+                    detail = "LOCK_PLAYER_UNCONFIRMED: Desired state saved; display has not confirmed."
             response = {"type": "ack", "requestId": message["requestId"], "status": status, "message": detail}
             response["signature"] = sign(key, f"ack\n{message['requestId']}\n{status}")
             response["detailSignature"] = sign(key, f"ack-detail\n{message['requestId']}\n{status}\n{detail}")

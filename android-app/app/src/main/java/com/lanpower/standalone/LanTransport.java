@@ -25,12 +25,13 @@ import java.util.UUID;
 
 /** One socket at a time; callers serialize work and the Activity closes it on destruction. */
 final class LanTransport {
-    private static final int PORT = 17840;
+    private final int port;
     private final boolean emulatorFixture;
     private final Set<DatagramSocket> activeSockets = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile boolean closed;
 
-    LanTransport(boolean emulatorFixture) { this.emulatorFixture = emulatorFixture; }
+    LanTransport(boolean emulatorFixture) { this(emulatorFixture, 17840); }
+    LanTransport(boolean emulatorFixture, int port) { this.emulatorFixture = emulatorFixture; this.port = port; }
 
     void close() {
         closed = true;
@@ -58,7 +59,7 @@ final class LanTransport {
             Set<InetAddress> broadcast = quick ? Collections.emptySet() : addresses();
             java.util.Iterator<String> pending = unicastTargets.iterator();
             boolean sent = false;
-            try { if (!quick) { sendToAddresses(socket, bytes, PORT, broadcast); sent = true; } }
+            try { if (!quick) { sendToAddresses(socket, bytes, port, broadcast); sent = true; } }
             catch (IOException unavailable) { if (!pending.hasNext() || closed) throw unavailable; }
             long start = System.nanoTime();
             long deadline = start + 2_600_000_000L;
@@ -77,7 +78,7 @@ final class LanTransport {
                         if (VpnTargets.isPrivateAddress(target)) batch.add(InetAddress.getByName(target));
                     }
                     if (!batch.isEmpty()) {
-                        try { sendToAddresses(socket, bytes, PORT, batch); sent = true; }
+                        try { sendToAddresses(socket, bytes, port, batch); sent = true; }
                         catch (IOException unreachable) { if (closed) throw unreachable; }
                     }
                 }
@@ -86,7 +87,7 @@ final class LanTransport {
                 try {
                     DatagramPacket packet = new DatagramPacket(new byte[8193], 8193);
                     socket.receive(packet);
-                    if (packet.getLength() > 8192 || packet.getPort() != PORT || !(packet.getAddress() instanceof Inet4Address)) continue;
+                    if (packet.getLength() > 8192 || packet.getPort() != port || !(packet.getAddress() instanceof Inet4Address)) continue;
                     JSONObject response = json(packet);
                     if (!"discovery".equals(response.optString("type")) || !nonce.equals(response.optString("requestNonce"))) continue;
                     String id = response.optString("deviceId");
@@ -182,7 +183,16 @@ final class LanTransport {
         return command(key, device, action, targetMac, null);
     }
 
+    String commandWithProgress(String key, ManagedDevice device, String action, java.util.function.Consumer<String> progress) throws Exception {
+        return command(key, device, action, null, null, progress);
+    }
+
     private String command(String key, ManagedDevice device, String action, String targetMac, String desktopValue) throws Exception {
+        return command(key, device, action, targetMac, desktopValue, message -> { });
+    }
+
+    private String command(String key, ManagedDevice device, String action, String targetMac, String desktopValue,
+            java.util.function.Consumer<String> progress) throws Exception {
         String requestId = UUID.randomUUID().toString();
         String nonce = UUID.randomUUID().toString().replace("-", "");
         long timestamp = Instant.now().getEpochSecond();
@@ -197,35 +207,48 @@ final class LanTransport {
         byte[] bytes = request.toString().getBytes(StandardCharsets.UTF_8);
         DatagramSocket socket = openSocket();
         try (DatagramSocket managed = socket) {
-            socket.connect(InetAddress.getByName(device.ip), PORT);
-            DatagramPacket outgoing = new DatagramPacket(bytes, bytes.length, socket.getInetAddress(), PORT);
+            socket.connect(InetAddress.getByName(device.ip), port);
+            DatagramPacket outgoing = new DatagramPacket(bytes, bytes.length, socket.getInetAddress(), port);
             socket.send(outgoing);
+            progress.accept("Đã gửi • Đang chờ client nhận lệnh");
             long timeout = "update-client".equals(action) ? 8_000_000_000L : desktopValue != null ? 12_000_000_000L : ("freeze".equals(action) || "unfreeze".equals(action)) ? 30_000_000_000L
                     : ("lock".equals(action) || "unlock".equals(action)) ? 15_000_000_000L : 3_500_000_000L;
             long deadline = System.nanoTime() + timeout;
-            boolean canRetry = desktopValue != null && device.supports("desktopretry");
-            long retryAt = System.nanoTime() + 8_500_000_000L;
-            if (canRetry) deadline += 8_500_000_000L;
+            boolean retrySupported = device.supports("commandretry") || (desktopValue != null && device.supports("desktopretry"));
+            if (desktopValue != null && retrySupported) deadline += 8_500_000_000L;
+            int retriesLeft = retrySupported ? 2 : 0;
+            long retryInterval = Math.min(timeout / 3, 4_000_000_000L);
+            long retryAt = System.nanoTime() + retryInterval;
             while (System.nanoTime() < deadline && !closed) {
-                long next = canRetry ? retryAt : deadline;
+                long next = retriesLeft > 0 ? Math.min(retryAt, deadline) : deadline;
                 socket.setSoTimeout((int) Math.max(1, (next - System.nanoTime()) / 1_000_000L));
                 DatagramPacket packet = new DatagramPacket(new byte[4097], 4097);
                 try { socket.receive(packet); }
                 catch (SocketTimeoutException timeoutError) {
-                    if (!canRetry) break;
-                    canRetry = false;
+                    if (retriesLeft == 0 || System.nanoTime() >= deadline) break;
+                    retriesLeft--;
                     socket.send(outgoing);
+                    retryAt = System.nanoTime() + retryInterval;
                     continue;
                 }
                 if (packet.getLength() > 4096) continue;
                 try {
                     JSONObject response = json(packet);
+                    if ("command-received".equals(response.optString("type"))
+                            && requestId.equals(response.optString("requestId"))
+                            && LanProtocol.verify(key, LanProtocol.receiptCanonical(requestId, device.id, action), response.optString("signature"))) {
+                        progress.accept("Đã nhận • Đang thực hiện");
+                        continue;
+                    }
                     String status = response.optString("status");
                     if (!"ack".equals(response.optString("type")) || !requestId.equals(response.optString("requestId")) ||
                             !LanProtocol.verifyAcknowledgement(key, requestId, status, response.optString("signature"))) continue;
                     String message = response.optString("message");
                     boolean verifiedDetail = LanProtocol.verifyAckDetail(key, requestId, status, message, response.optString("detailSignature"));
-                    if (!"accepted".equals(status)) throw new CommandRejectedException(verifiedDetail ? message : "Agent từ chối lệnh (không có chi tiết đã xác thực)");
+                    if (!"accepted".equals(status)) {
+                        if (verifiedDetail && LanProtocol.pendingResult(action, message)) throw new ResultPendingException(message);
+                        throw new CommandRejectedException(verifiedDetail ? message : "Agent từ chối lệnh (không có chi tiết đã xác thực)");
+                    }
                     if ("freeze".equals(action) || "unfreeze".equals(action) || "wake".equals(action) || "lock".equals(action) || "unlock".equals(action) || "update-client".equals(action)) {
                         if (!verifiedDetail) throw new SocketTimeoutException("Chưa xác thực được chi tiết kết quả; cần agent mới và quét lại trạng thái");
                         return message;
@@ -239,6 +262,10 @@ final class LanTransport {
                     ? "Chưa xác nhận kết quả. Máy có thể đã thực hiện lệnh."
                     : "Không nhận được phản hồi agent");
         } finally { activeSockets.remove(socket); }
+    }
+
+    static final class ResultPendingException extends SocketTimeoutException {
+        ResultPendingException(String message) { super(message); }
     }
 
     static final class CommandRejectedException extends IOException {

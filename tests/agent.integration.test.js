@@ -27,6 +27,7 @@ async function startAgent(t, options = {}) {
   await fs.writeFile(path.join(root, 'config.json'), JSON.stringify({ managementKey: key, deviceId, port, ...(options.hardwareUuid ? { identityMode: 'hardware-v1' } : {}) }));
   if (options.hardwareUuid) await fs.writeFile(path.join(root, 'hardware-uuid'), options.hardwareUuid);
   if (options.uwfFailure) await fs.writeFile(path.join(root, 'fail-uwf'), '1');
+  if (options.lockPending) await fs.writeFile(path.join(root, 'pending-lock'), '1');
   if (options.lockFailure) await fs.writeFile(path.join(root, 'fail-lock'), '1');
   const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'Agent-Harness.ps1'), '-AgentPath', path.join(__dirname, '..', 'client', 'StandaloneAgent.ps1'), '-TestRoot', root], { stdio: ['ignore', 'pipe', 'pipe'] });
   let output = ''; let errors = '';
@@ -48,7 +49,14 @@ async function startAgent(t, options = {}) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { client.close(); resolve(null); }, wait);
       client.once('error', error => { clearTimeout(timer); client.close(); reject(error); });
-      client.once('message', bytes => { clearTimeout(timer); client.close(); resolve(JSON.parse(bytes)); });
+      client.on('message', bytes => {
+        const reply = JSON.parse(bytes);
+        if (reply.type === 'command-received') {
+          assert.equal(reply.signature, sign(key, ['command-received', value.requestId, deviceId, value.action].join('\n')));
+          return;
+        }
+        clearTimeout(timer); client.close(); resolve(reply);
+      });
       client.send(bytes, port, '127.0.0.1');
     });
   }
@@ -82,10 +90,10 @@ test('real agent ignores malformed, oversized, unsigned and wrongly signed disco
   const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
   assert.equal(reply.type, 'discovery'); assert.equal(reply.requestNonce, nonce); assert.equal(reply.deviceId, agent.deviceId);
   assert.equal(reply.signature, sign(agent.key, `discovery\n${nonce}\n${reply.deviceId}\n${reply.hostname}\n${reply.mac}`));
-  assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media', 'mediasync', 'desktopactions', 'desktopretry', 'boot-638000000000000000', 'updatecontrol']));
+  assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media', 'mediasync', 'desktopactions', 'desktopretry', 'boot-638000000000000000', 'updatecontrol', 'commandretry']));
   assert.equal(reply.stateSignature, sign(agent.key, `state\n${nonce}\n${reply.deviceId}\n${reply.agentVersion}\n${reply.uwf}\n${reply.capabilities}`));
   assert.equal(reply.lockSignature, sign(agent.key, `lockstate\n${nonce}\n${reply.deviceId}\n${reply.lockState}\n${reply.mediaVersion}\n${reply.mediaPort}\n${reply.mediaCertSha256}`));
-  assert.equal(reply.clientVersionCode, 23);
+  assert.equal(reply.clientVersionCode, 24);
   assert.equal(reply.runtimeStatus, 'ready');
   assert.equal(reply.runtimeSignature, sign(agent.key, `runtime\n${nonce}\n${reply.deviceId}\n${reply.runtimeStatus}\n${reply.runtimeMessage}`));
   assert.equal(reply.updateSignature, sign(agent.key, `update\n${nonce}\n${reply.deviceId}\n${reply.clientVersionCode}\n${reply.latestVersion}\n${reply.updateStatus}\n${reply.updateMessage}`));
@@ -116,8 +124,9 @@ for (const action of ['shutdown', 'restart']) {
     const reply = await agent.exchange(request, 3000);
     assert.equal(reply.status, 'accepted');
     assert.equal(reply.signature, sign(agent.key, `ack\n${request.requestId}\naccepted`));
-    const code = agent.child.exitCode !== null ? agent.child.exitCode : (await once(agent.child, 'exit'))[0];
-    assert.equal(code, 0, agent.errors());
+    assert.deepEqual(await agent.exchange(request, 3000), reply);
+    assert.equal(agent.child.exitCode, null, 'listener remains available until Windows actually powers down');
+    assert.equal(agent.output().split('TEST_POWER_ACTION=' + action).length - 1, 1);
     assert.match(agent.output(), new RegExp(`TEST_POWER_ACTION=${action}`));
   });
 }
@@ -147,7 +156,7 @@ test('freeze and unfreeze execute only safe stubs, sign outcome and keep agent a
     const status = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
     assert.equal(status.uwf, state);
     assert.equal(status.stateSignature, sign(agent.key, `state\n${nonce}\n${status.deviceId}\n${status.agentVersion}\n${state}\n${status.capabilities}`));
-    assert.equal(await agent.exchange(request), null, 'UWF request replay must not reapply changes');
+    assert.deepEqual(await agent.exchange(request, 3000), reply, 'UWF retry returns cached result without reapplying');
   }
 });
 
@@ -176,7 +185,7 @@ test('authenticated VPN Wake-on-LAN relay binds the target MAC and leaves the ag
   assert.equal(reply.status, 'accepted');
   assert.equal(reply.detailSignature, sign(agent.key, `ack-detail\n${request.requestId}\naccepted\n${reply.message}`));
   assert.match(agent.output(), /TEST_WAKE_RELAY=02:00:00:00:00:01/);
-  assert.equal(await agent.exchange(request), null, 'relay replay must not send another magic packet');
+  assert.deepEqual(await agent.exchange(request, 3000), reply, 'relay retry returns cached result without resending WOL');
   const nonce = crypto.randomUUID();
   assert.equal((await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000)).deviceId, agent.deviceId);
 });
@@ -195,7 +204,7 @@ test('lock and unlock require authentication, confirm signed display state and n
     assert.equal(state.lockState, expectedState);
     assert.equal(state.lockSignature, sign(agent.key, `lockstate\n${nonce}\n${state.deviceId}\n${expectedState}\n${state.mediaVersion}\n${state.mediaPort}\n${state.mediaCertSha256}`));
     assert.match(agent.output(), new RegExp(`TEST_SESSION_LOCK=${action}`));
-    assert.equal(await agent.exchange(request), null, 'session-lock replay must not execute again');
+    assert.deepEqual(await agent.exchange(request, 3000), reply, 'session-lock retry must return the cached result');
   }
   assert.doesNotMatch(agent.output(), /TEST_POWER_ACTION/);
 });
@@ -233,4 +242,21 @@ test('authenticated APK update command starts once and returns a signed replay-s
   assert.equal(first.detailSignature, sign(agent.key, `ack-detail\n${request.requestId}\naccepted\n${first.message}`));
   assert.deepEqual(await agent.exchange(request, 3000), first);
   assert.equal((agent.output().match(/TEST_UPDATE_CLIENT/g) || []).length, 1);
+});
+
+test('late display confirmation returns signed uncertainty, signed actual state and cached failure without repeating lock', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t, { lockPending: true });
+  for (const [action, expectedState] of [['lock', 'locked'], ['unlock', 'unlocked']]) {
+    const request = command(agent.key, agent.deviceId, { action });
+    const reply = await agent.exchange(request, 3000);
+    assert.equal(reply.status, 'rejected');
+    assert.match(reply.message, /LOCK_PLAYER_UNCONFIRMED/);
+    assert.equal(reply.detailSignature, sign(agent.key, ['ack-detail', request.requestId, 'rejected', reply.message].join('\n')));
+    assert.deepEqual(await agent.exchange(request, 3000), reply);
+    const nonce = crypto.randomUUID();
+    const state = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, 'discover\n' + nonce) }, 3000);
+    assert.equal(state.lockState, expectedState);
+    assert.equal(state.lockSignature, sign(agent.key, ['lockstate', nonce, state.deviceId, expectedState, state.mediaVersion, state.mediaPort, state.mediaCertSha256].join('\n')));
+    assert.equal(agent.output().split('TEST_SESSION_LOCK=' + action).length - 1, 1);
+  }
 });

@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.4.9'
-$AgentVersionCode = 23
+$AgentVersion = '1.4.10'
+$AgentVersionCode = 24
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -341,6 +341,7 @@ function Send-Acknowledgement {
         [string]$Status,
         [string]$Message
     )
+    Write-DebugLog "Command outcome: request=$RequestId status=$Status message=$Message"
     $signature = Get-HmacBase64 $Config.managementKey "ack`n$RequestId`n$Status"
     $detailSignature = Get-HmacBase64 $Config.managementKey "ack-detail`n$RequestId`n$Status`n$Message"
     Send-JsonDatagram -Client $Client -Remote $Remote -Value ([ordered]@{
@@ -415,7 +416,7 @@ try {
                     $responseSignature = Get-HmacBase64 $config.managementKey "discovery`n$($message.nonce)`n$($config.deviceId)`n$hostname`n$mac"
                     if (-not $script:DisplayRuntime -and ([DateTime]::UtcNow - $script:RuntimeLastTry).TotalSeconds -ge 30) { Initialize-LanPowerRuntime -Config $config }
                     $uwfState = Get-UwfState
-                    $capabilities = (Get-UwfCapabilities) + $bootCapability + ',updatecontrol'
+                    $capabilities = (Get-UwfCapabilities) + $bootCapability + ',updatecontrol,commandretry'
                     if (Test-LanPowerPilotUpdates) { $capabilities += ',pilotupdate' }
                     $display = Get-LanPowerRuntimeSnapshot
                     if ($display.available) { $capabilities += ',desktopactions,desktopretry' }
@@ -494,6 +495,11 @@ try {
                 }
                 if ($usedNonces.Count -ge 4096) { continue }
                 $usedNonces[$nonceKey] = $now
+                if ($message.action -in @('shutdown', 'restart', 'freeze', 'unfreeze', 'wake', 'lock', 'unlock', 'update-client', 'open-web', 'close-apps')) {
+                    $receiptSignature = Get-HmacBase64 $config.managementKey "command-received`n$($message.requestId)`n$($config.deviceId)`n$($message.action)"
+                    try { Send-JsonDatagram -Client $udp -Remote $remote -Value @{ type = 'command-received'; requestId = $message.requestId; signature = $receiptSignature } } catch { Write-DebugLog 'Receipt delivery failed; continuing authenticated command.' }
+                    Write-DebugLog "Command received: request=$($message.requestId) action=$($message.action) source=$($remote.Address)"
+                }
                 if ($message.action -eq 'update-client') {
                     try {
                         $result = Invoke-LanPowerClientUpdate -Config $config
@@ -533,19 +539,22 @@ try {
                         $result = if ($message.action -eq 'wake') { Invoke-WakeRelay -Mac $message.targetMac }
                             elseif ($message.action -in @('lock', 'unlock')) { Invoke-LanPowerSessionLock -Action $message.action }
                             else { Invoke-UwfAction -Action $message.action }
-                        Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'accepted' -Message $result
-                    }
-                    catch {
+                        $outcome = 'accepted'
+                    } catch {
                         $script:LastUwfCheck = [DateTime]::MinValue
-                        $failure = [string]$_.Exception.Message
-                        if ($failure.Length -gt 512) { $failure = $failure.Substring(0, 512) }
-                        Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'rejected' -Message $failure
+                        $outcome = 'rejected'
+                        $result = [string]$_.Exception.Message
+                        if ($result.Length -gt 512) { $result = $result.Substring(0, 512) }
                     }
+                    # Cache before sending: a lost ACK must not change the action's outcome.
+                    $desktopResults[$nonceKey] = @{ Signature = $expected; Address = $remote.Address.ToString(); Status = $outcome; Message = $result }
+                    Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status $outcome -Message $result
                     continue
                 }
+                $desktopResults[$nonceKey] = @{ Signature = $expected; Address = $remote.Address.ToString(); Status = 'accepted'; Message = 'Power action accepted.' }
                 Send-Acknowledgement -Client $udp -Remote $remote -Config $config -RequestId $message.requestId -Status 'accepted' -Message 'Power action accepted.'
                 Invoke-PowerAction -Action $message.action
-                exit 0
+                continue
             }
             catch {
                 # Invalid or unauthenticated datagrams are ignored deliberately.
