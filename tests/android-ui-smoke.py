@@ -378,11 +378,11 @@ def close_result(expected_error=None):
 
 def bulk(action, expected_ids=IDS_A, expected_error=None):
     start = len(control()["events"])
-    extra = {"freeze": "Đóng băng C:", "unfreeze": "Bỏ đóng băng C:",
-             "lock": "Khóa màn hình", "unlock": "Mở màn hình", "update-client": "Cập nhật client"}
+    extra = {"freeze": "Đóng băng", "unfreeze": "Bỏ đóng băng",
+             "lock": "Khóa", "unlock": "Mở khóa", "update-client": "Cập nhật client"}
     if action in extra:
         label = extra[action]
-        tap_text("Thao tác khác", lambda tree: any(n.get("text") == label for n in tree.iter("node")))
+        tap_text("Thao tác", lambda tree: any(n.get("text") == label for n in tree.iter("node")))
         tap_text(label, lambda tree: has_button(tree, "Thực hiện"))
     else:
         tap(by_id("action_" + action), lambda tree: has_button(tree, "Thực hiện"))
@@ -450,6 +450,12 @@ assert visible_devices() == {"CI-A-01", "CI-A-02"}, "Room A did not isolate its 
 with open("emulator-evidence/room-tools.png", "wb") as picture:
     subprocess.run(["adb", "exec-out", "screencap", "-p"], stdout=picture, check=True, timeout=30)
 
+tree = ui()
+parents = {child: parent for parent in tree.iter() for child in parent}
+shutdown = next(n for n in tree.iter("node") if by_id("action_shutdown")(n.attrib))
+while shutdown in parents:
+    shutdown = parents[shutdown]
+    assert shutdown.get("class") != "android.widget.ScrollView", "Room actions scroll with the computer list"
 tap(lambda node: node.get("content-desc") == "device:CI-A-01",
     lambda tree: any(node.attrib.get("text") == "Địa chỉ MAC" for node in tree.iter("node")))
 tree = wait_text("Địa chỉ MAC")
@@ -536,6 +542,16 @@ tap(by_id("select_offline"), lambda tree: any(
     by_id("select_offline")(n.attrib) and n.get("checked") == "false" for n in tree.iter("node")))
 control("/set", {"devices": {second: {"online": True}}})
 refresh()
+home()
+open_room(ROOM_A)
+tap(lambda node: node.get("content-desc") == "device:CI-A-01",
+    lambda tree: any(n.get("text") == "Địa chỉ MAC" for n in tree.iter("node")))
+tap_text("Nhật ký máy", lambda tree: any(n.get("text", "").startswith("Nhật ký •") for n in tree.iter("node")))
+tree = ui()
+assert any("Đóng băng" in n.get("text", "") for n in tree.iter("node")), "Per-machine command history did not survive app restart"
+with open("emulator-evidence/device-history.png", "wb") as picture:
+    subprocess.run(["adb", "exec-out", "screencap", "-p"], stdout=picture, check=True, timeout=30)
+tap_text("Đóng", lambda tree: not any(n.get("text", "").startswith("Nhật ký •") for n in tree.iter("node")))
 home()
 verify_directed_vpn()
 print("ANDROID_UI_SMOKE_TEST=PASS (multiple rooms, 8-character keys, real UDP isolation, online/offline, details, bulk UWF/power/WOL, encrypted persistence)")

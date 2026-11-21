@@ -82,7 +82,7 @@ public final class RoomPlaylistTest {
         assertThrows(IllegalArgumentException.class, () -> LanProtocol.runtimeCanonical("nonce", "pc", "error", "bad\nmessage"));
         ManagedDevice device = new ManagedDevice("pc", "PC", "192.168.1.2", "02:00:00:00:00:01");
         device.runtimeAuthenticated = true; device.runtimeStatus = "not-configured";
-        assertTrue(device.mediaUnavailableReason().contains("D:"));
+        assertTrue(device.mediaUnavailableReason().contains("ổ Windows"));
         device.runtimeStatus = "error"; device.runtimeMessage = "Runtime failure";
         assertTrue(device.copy().mediaUnavailableReason().contains("Runtime failure"));
     }

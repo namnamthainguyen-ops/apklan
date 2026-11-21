@@ -34,7 +34,28 @@ final class RoomModel {
 
     void applyScan(Collection<ManagedDevice> found, long scanTime, boolean full) {
         Set<String> answered = new java.util.HashSet<>();
+        Set<String> responding = new java.util.HashSet<>();
+        Map<String, Integer> names = new LinkedHashMap<>();
+        for (ManagedDevice reply : found) {
+            responding.add(reply.endpointKey());
+            String name = reply.baseKey() + "|" + reply.hostname.toLowerCase(java.util.Locale.ROOT);
+            names.put(name, names.getOrDefault(name, 0) + 1);
+        }
         for (ManagedDevice device : found) {
+            List<ManagedDevice> renamedAddress = new ArrayList<>();
+            int sameNameReplies = names.get(device.baseKey() + "|" + device.hostname.toLowerCase(java.util.Locale.ROOT));
+            for (ManagedDevice saved : devices.values()) {
+                if (!responding.contains(saved.endpointKey()) && saved.baseKey().equals(device.baseKey()) && saved.hostname.equalsIgnoreCase(device.hostname))
+                    renamedAddress.add(saved);
+            }
+            if (sameNameReplies == 1 && renamedAddress.size() == 1) {
+                ManagedDevice saved = renamedAddress.get(0);
+                devices.remove(saved.listKey());
+                ManagedDevice temporary = findEndpoint(device.endpointKey());
+                if (temporary != null) devices.remove(temporary.listKey());
+                device.slot = saved.slot;
+            }
+            remember(device);
             answered.add(device.listKey());
             device.online = true;
             device.missedScans = 0;
@@ -61,6 +82,26 @@ final class RoomModel {
         if (full) lastFullScan = scanTime;
         lastScan = scanTime;
         scanError = "";
+    }
+
+    ManagedDevice findEndpoint(String endpoint) {
+        for (ManagedDevice device : devices.values()) if (device.endpointKey().equals(endpoint)) return device;
+        return null;
+    }
+
+    void remember(ManagedDevice device) {
+        ManagedDevice existing = findEndpoint(device.endpointKey());
+        if (existing != null) device.slot = existing.slot;
+        ManagedDevice conflict = devices.get(device.listKey());
+        if (conflict != null && !conflict.ip.equals(device.ip)) {
+            String suffix = "ip:" + device.ip;
+            String candidate = suffix;
+            int number = 1;
+            while (devices.containsKey(device.baseKey() + "|" + candidate))
+                candidate = suffix + "#" + number++;
+            device.slot = candidate;
+        }
+        devices.put(device.listKey(), device);
     }
 
     void trackRestart(ManagedDevice device, long now) {
@@ -112,6 +153,7 @@ final class ManagedDevice {
     String agentVersion = "unknown";
     boolean stateAuthenticated;
     boolean online;
+    String slot = "";
     int missedScans;
     long lastSeen;
     long clientVersionCode;
@@ -135,7 +177,9 @@ final class ManagedDevice {
         this.mac = mac;
     }
 
-    String listKey() { try { return id + "|" + LanProtocol.normalizeMac(mac); } catch (IllegalArgumentException invalidMac) { return id; } }
+    String baseKey() { try { return id + "|" + LanProtocol.normalizeMac(mac); } catch (IllegalArgumentException invalidMac) { return id; } }
+    String endpointKey() { return baseKey() + "|" + ip; }
+    String listKey() { return baseKey() + (slot.isEmpty() ? "" : "|" + slot); }
 
     String desktopBlockReason() {
         if (!online) return "Máy chưa phản hồi";
@@ -206,9 +250,9 @@ final class ManagedDevice {
     boolean supportsMedia() { return lockAuthenticated && supports("media") && mediaPort == 17842 && mediaCertSha256.matches("[a-f0-9]{64}"); }
 
     String mediaUnavailableReason() {
-        if (runtimeAuthenticated && "not-configured".equals(runtimeStatus)) return "Client chưa chuẩn bị bộ nhận quảng cáo. Kiểm tra D: chưa đóng băng rồi cài đè client mới. Nếu C: đang đóng băng, mở bảo vệ và khởi động lại trước khi cài. " + runtimeMessage;
+        if (runtimeAuthenticated && "not-configured".equals(runtimeStatus)) return "Client chưa chuẩn bị bộ nhận quảng cáo. Kiểm tra thư mục RoomTN20Data trên ổ Windows rồi cài đè client mới. Nếu C: đang đóng băng, mở bảo vệ và khởi động lại trước khi cài. " + runtimeMessage;
         if (runtimeAuthenticated && "error".equals(runtimeStatus)) return "Bộ nhận quảng cáo trên Windows lỗi: " + runtimeMessage;
-        return "Client " + agentVersion + " chưa bật bộ nhận quảng cáo. Cài đè client mới trên máy con; cần D: chưa đóng băng. Nếu C: đang đóng băng, mở bảo vệ và khởi động lại trước khi cài";
+        return "Client " + agentVersion + " chưa bật bộ nhận quảng cáo. Cài đè client mới trên máy con; dữ liệu quảng cáo lưu trên ổ Windows. Nếu C: đang đóng băng, mở bảo vệ và khởi động lại trước khi cài";
     }
 
     String uwfDescription() {
@@ -231,6 +275,7 @@ final class ManagedDevice {
         value.stateAuthenticated = stateAuthenticated;
         value.online = online;
         value.lastSeen = lastSeen;
+        value.slot = slot;
         value.missedScans = missedScans;
         value.clientVersionCode = clientVersionCode;
         value.latestVersion = latestVersion;

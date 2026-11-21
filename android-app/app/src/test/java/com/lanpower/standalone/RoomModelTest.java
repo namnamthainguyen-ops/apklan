@@ -42,6 +42,43 @@ public final class RoomModelTest {
         assertTrue(room.duplicateId(first));
     }
 
+    @Test public void identicalGhostIdentitiesRemainSeparateByIpAndKeepTheirKeysAfterDhcpChanges() {
+        RoomModel room = new RoomModel("room", "A", false, "key");
+        ManagedDevice first = device("clone");
+        ManagedDevice second = new ManagedDevice(first.id, "PC-02", "192.168.1.21", first.mac);
+        room.applyScan(Arrays.asList(first, second), 1000);
+        assertEquals(2, room.devices.size());
+        assertNotEquals(first.listKey(), second.listKey());
+        String firstKey = first.listKey(), secondKey = second.listKey();
+        assertEquals("192.168.1.21", room.selected(Collections.singleton(secondKey)).get(0).ip);
+        ManagedDevice moved = new ManagedDevice(second.id, second.hostname, "192.168.1.35", second.mac);
+        room.remember(moved.copy()); // Incremental discovery before the completed scan.
+        room.applyScan(Arrays.asList(first.copy(), moved), 2000);
+        assertEquals(2, room.devices.size());
+        assertEquals("192.168.1.20", room.devices.get(firstKey).ip);
+        assertEquals("192.168.1.35", room.devices.get(secondKey).ip);
+        moved.hostname = "Renamed-PC";
+        room.applyScan(Arrays.asList(first.copy(), moved.copy()), 3000);
+        assertEquals(2, room.devices.size());
+        assertEquals("Renamed-PC", room.devices.get(secondKey).hostname);
+        ManagedDevice reusedIp = new ManagedDevice(first.id, "PC-03", "192.168.1.21", first.mac);
+        room.applyScan(Arrays.asList(first.copy(), moved.copy(), reusedIp), 4000);
+        assertEquals(3, room.devices.size());
+        assertEquals("192.168.1.35", room.devices.get(secondKey).ip);
+        assertNotEquals(secondKey, reusedIp.listKey());
+    }
+
+    @Test public void sameNamesAndGhostIdsOnDifferentIpsDoNotCollapse() {
+        RoomModel room = new RoomModel("room", "A", false, "key");
+        ManagedDevice first = device("clone");
+        ManagedDevice second = new ManagedDevice(first.id, first.hostname, "192.168.1.21", first.mac);
+        room.applyScan(Arrays.asList(first, second), 1000);
+        assertEquals(2, room.devices.size());
+        room.applyScan(Arrays.asList(first.copy(), second.copy()), 2000);
+        assertEquals(2, room.onlineCount());
+        assertNotEquals(first.endpointKey(), second.endpointKey());
+    }
+
     @Test public void zeroReplyScanMarksSavedDevicesOfflineWithoutDeletingThem() {
         RoomModel room = new RoomModel("room", "Phòng A", false, "key");
         room.applyScan(Collections.singletonList(device("one")), 1000);
@@ -85,8 +122,8 @@ public final class RoomModelTest {
         room.applyScan(Collections.singletonList(first), 2000);
         assertFalse(room.restartChecks.get(first.listKey()).finished);
         ManagedDevice rebooted = device("one");
-        rebooted.hostname = "New name";
-        rebooted.ip = "192.168.1.25";
+        rebooted.hostname = first.hostname;
+        rebooted.ip = first.ip;
         rebooted.capabilities = "power,boot-638000000000000001";
         room.applyScan(Collections.singletonList(rebooted), 3000);
         assertFalse(room.restartChecks.get(first.listKey()).finished);
@@ -94,6 +131,21 @@ public final class RoomModelTest {
         room.applyScan(Collections.singletonList(rebooted), 4000);
         assertTrue(room.restartChecks.get(first.listKey()).finished);
         assertEquals(1, room.devices.size());
+    }
+
+    @Test public void ambiguousGhostWithNewNameAndIpDoesNotConfirmAnotherMachinesRestart() {
+        RoomModel room = new RoomModel("room", "A", false, "key");
+        ManagedDevice first = device("clone");
+        first.stateAuthenticated = true;
+        first.capabilities = "power,boot-638000000000000000";
+        room.applyScan(Collections.singletonList(first), 1000);
+        room.trackRestart(first, 1000);
+        ManagedDevice other = new ManagedDevice(first.id, "Other-PC", "192.168.1.30", first.mac);
+        other.stateAuthenticated = true;
+        other.capabilities = "power,boot-638000000000000001";
+        room.applyScan(Collections.singletonList(other), 2000);
+        assertEquals(2, room.devices.size());
+        assertFalse(room.restartChecks.get(first.listKey()).finished);
     }
 
     @Test public void unsignedOrSubstringCapabilitiesNeverEnableUwf() {

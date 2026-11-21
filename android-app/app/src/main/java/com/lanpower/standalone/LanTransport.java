@@ -145,7 +145,7 @@ final class LanTransport {
                         }
                     } catch (IllegalArgumentException invalidRuntime) { }
                     unanswered.remove(device.ip);
-                    if (found.put(device.listKey(), device) == null) onFound.accept(device);
+                    if (found.put(device.endpointKey(), device) == null) onFound.accept(device);
                     if (quick && unanswered.isEmpty()) break;
                 } catch (SocketTimeoutException ignored) { }
                 catch (JSONException | IllegalArgumentException malformed) {

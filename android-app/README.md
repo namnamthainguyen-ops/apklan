@@ -51,6 +51,14 @@ Nút Đóng tất cả ứng dụng gửi yêu cầu đóng các cửa sổ ứn
 
 ## Cập nhật client từ APK
 
-Từ APK 1.5.4, chọn máy Online trong phòng rồi mở Thao tác khác → Cập nhật client. Màn hình chi tiết máy cũng có nút Cập nhật client. Cần client Windows 1.4.8 trở lên; các bản cũ có thể nhận bản này bằng bộ tự cập nhật hiện có hoặc cài đè EXE.
+Từ APK 1.5.4, chọn máy Online trong phòng rồi mở Thao tác → Cập nhật client. Màn hình chi tiết máy cũng có nút Cập nhật client. Cần client Windows 1.4.8 trở lên; các bản cũ có thể nhận bản này bằng bộ tự cập nhật hiện có hoặc cài đè EXE.
 
 APK gửi yêu cầu đã xác thực để khởi chạy tác vụ cập nhật Windows đã cài. Client tự kiểm tra manifest và gói có chữ ký. Quét lại để xem Đang kiểm tra, Đang tải, Đang cài, Đã cập nhật, Chờ mở UWF, Chờ khởi động lại hoặc Lỗi cập nhật. Yêu cầu đã nhận chỉ xác nhận khởi chạy tác vụ. Máy offline được bỏ qua. Nếu C: đang đóng băng, mở UWF và khởi động lại rồi gửi yêu cầu lần nữa.
+
+## Nhật ký máy và thanh thao tác
+
+APK 1.5.5 giữ hàng Bật, Tắt, reboot và Thao tác ở ngoài vùng cuộn danh sách. Menu trên cùng dùng biểu tượng dọc, Thao tác dùng icon điều chỉnh. Vào chi tiết máy → Nhật ký máy để xem 50 lệnh gần nhất và kết quả, gồm gửi quảng cáo và cập nhật client. Nhật ký lưu riêng trên APK này và giữ sau khi mở lại ứng dụng.
+
+Client 1.4.9 lưu nội dung quảng cáo trong RoomTN20Data trên ổ cài Windows, thường là C:\RoomTN20Data. Bộ cài sao chép nội dung cũ từ đường dẫn đã cấu hình và giữ bản gốc. Thư mục quảng cáo được thêm ngoại lệ UWF cho phiên kế tiếp. Ngoại lệ mới có hiệu lực sau khởi động lại. Nếu C: đang đóng băng, mở UWF và khởi động lại trước khi cài client mới.
+
+Máy có ID hoặc MAC sao chép được lưu riêng theo IP phản hồi. APK gửi lệnh trực tiếp tới IP được chọn và tiếp tục xác thực bằng key phòng. Tên máy dùng để hiển thị và hỗ trợ nhận lại bảng ghi khi IP đổi. Khi tên và IP cùng thay đổi mà danh tính trùng, APK giữ bảng ghi cũ để tránh gộp nhầm hai máy. Các nhãn nút rút gọn là reboot, Đóng băng, Bỏ đóng băng, Khóa, Mở khóa và Đóng ứng dụng.

@@ -60,6 +60,7 @@ public final class MainActivity extends Activity {
     private final List<Button> selectionButtons = new ArrayList<>();
     private SecureKeyStore keys;
     private RoomRepository repository;
+    private DeviceHistory history;
     private LanTransport transport;
     private RoomMediaStorage mediaStorage;
     private final MediaTransfer mediaTransfer = new MediaTransfer();
@@ -70,6 +71,7 @@ public final class MainActivity extends Activity {
     private boolean updateReady;
     private boolean updatesDisabled;
     private LinearLayout content;
+    private LinearLayout fixedActions;
     private TextView title;
     private TextView status;
     private TextView selectionSummary;
@@ -105,6 +107,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         keys = new SecureKeyStore(this);
         repository = new RoomRepository(this, keys);
+        history = new DeviceHistory(this);
         mediaStorage = new RoomMediaStorage(this);
         // The opt-in fixture route is limited to debug builds on Android emulators.
         boolean emulator = Build.FINGERPRINT.contains("generic") || Build.MODEL.contains("sdk_gphone") || Build.HARDWARE.contains("ranchu") || Build.HARDWARE.contains("goldfish");
@@ -226,6 +229,9 @@ public final class MainActivity extends Activity {
         progress.setIndeterminate(true);
         progress.setVisibility(View.GONE);
         root.addView(progress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4)));
+        fixedActions = column();
+        fixedActions.setPadding(dp(12), dp(2), dp(12), dp(2));
+        root.addView(fixedActions, matchWrap());
 
         ScrollView scroll = new ScrollView(this);
         content = column();
@@ -306,6 +312,10 @@ public final class MainActivity extends Activity {
         backButton.setEnabled(!busy);
         addButton.setEnabled(!busy && !loadFailed);
         refreshButton.setEnabled(!busy && !rooms.isEmpty());
+        fixedActions.removeAllViews();
+        boolean roomList = room != null && device == null && !showingMedia;
+        fixedActions.setVisibility(roomList ? View.VISIBLE : View.GONE);
+        if (roomList) addActionButtons(fixedActions, room, null);
         if (room == null) {
             if (rooms.isEmpty()) {
                 content.addView(note("Thêm phòng bằng tên và Key phòng đúng 8 ký tự ASCII hiển thị, không có khoảng trắng. Dùng cùng khóa đó khi cài agent Windows của phòng."));
@@ -348,7 +358,6 @@ public final class MainActivity extends Activity {
 
     private void renderRoom(RoomModel room) {
         selected.retainAll(room.devices.keySet());
-        addActionButtons(content, room, null);
 
         if (!room.scanError.isEmpty()) content.addView(note("Lần quét thất bại, trạng thái hiện tại chưa xác định: " + room.scanError));
         selectionSummary = text("Đã chọn " + selected.size() + " máy", 13, NAVY);
@@ -378,7 +387,7 @@ public final class MainActivity extends Activity {
                 render();
             });
             group.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            group.setPadding(dp(12), dp(10), dp(12), dp(10));
+            group.setPadding(dp(10), dp(7), dp(10), dp(7));
             GradientDrawable background = new GradientDrawable();
             background.setColor(online ? Color.rgb(219, 247, 231) : Color.rgb(235, 238, 243));
             background.setCornerRadius(dp(10));
@@ -424,7 +433,7 @@ public final class MainActivity extends Activity {
 
     private void detailField(LinearLayout parent, String label, String value) {
         LinearLayout line = row();
-        line.setPadding(dp(2), dp(12), dp(2), dp(12));
+        line.setPadding(dp(2), dp(8), dp(2), dp(8));
         TextView caption = text(label, 14, Color.DKGRAY);
         int icon = iconFor(label);
         if (icon != 0) {
@@ -456,6 +465,12 @@ public final class MainActivity extends Activity {
         detailField(info, "Quảng cáo", mediaStatus(room, device));
         detailField(info, "Màn hình", device.lockDescription());
         content.addView(info);
+        Button log = button("Nhật ký máy", NAVY, View.NO_ID);
+        log.setOnClickListener(view -> showPrompt(new AlertDialog.Builder(this)
+                .setTitle("Nhật ký • " + device.hostname)
+                .setMessage(history.read(room.id, device.listKey()))
+                .setPositiveButton("Đóng", null).create()));
+        content.addView(log, matchWrap());
         if (device.updateAuthenticated && "error".equals(device.updateStatus))
             content.addView(note("Lỗi cập nhật: " + device.updateMessage));
         if (device.supports("pilotupdate")) content.addView(note("Nhóm cập nhật thử"));
@@ -464,16 +479,16 @@ public final class MainActivity extends Activity {
         if (room.duplicateId(device)) content.addView(note("Trùng ID client với máy khác. Kiểm tra ảnh ghost và cấu hình phần cứng."));
         if (room.restartChecks.containsKey(device.listKey())) content.addView(note(room.restartChecks.get(device.listKey()).message));
         String desktopStatus = room.scanError.isEmpty() ? device.desktopBlockReason() : "Cần quét lại máy";
-        content.addView(note("Mở website / Đóng tất cả ứng dụng: " + (desktopStatus.isEmpty() ? "Phiên Windows sẵn sàng" : desktopStatus)));
+        content.addView(note("Mở website / Đóng ứng dụng: " + (desktopStatus.isEmpty() ? "Phiên Windows sẵn sàng" : desktopStatus)));
         if (!device.supportsUwf()) content.addView(note("Chưa xác thực được UWF. Bộ cài client mới tự chuẩn bị UWF: cài hoặc cập nhật client rồi khởi động lại nếu được yêu cầu. Windows Home/Pro không hỗ trợ tính năng này."));
-        content.addView(note("Đóng/bỏ đóng băng C: đặt trạng thái cho lần khởi động tiếp theo; app không tự khởi động lại máy. Xem Current/Next sau khi quét rồi tự chọn Khởi động lại khi sẵn sàng."));
+        content.addView(note("Đóng/bỏ đóng băng C: đặt trạng thái cho lần khởi động tiếp theo; app không tự khởi động lại máy. Xem Current/Next sau khi quét rồi tự chọn reboot khi sẵn sàng."));
         addActionButtons(content, room, device);
     }
 
     private void addActionButtons(LinearLayout parent, RoomModel room, ManagedDevice oneDevice) {
         if (oneDevice != null) {
             String[] commands = {"wake", "shutdown", "restart", "freeze", "unfreeze", "lock", "unlock", "open-web", "close-apps", "update-client"};
-            String[] labels = {"Bật máy", "Tắt máy", "Khởi động lại", "Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình", "Mở website", "Đóng tất cả ứng dụng", "Cập nhật client"};
+            String[] labels = {"Bật máy", "Tắt máy", "reboot", "Đóng băng", "Bỏ đóng băng", "Khóa", "Mở khóa", "Mở website", "Đóng ứng dụng", "Cập nhật client"};
             int[] actionIds = {R.id.action_wake, R.id.action_shutdown, R.id.action_restart, R.id.action_freeze, R.id.action_unfreeze, R.id.action_lock, R.id.action_unlock, View.NO_ID, View.NO_ID, View.NO_ID};
             for (int offset = 0; offset < commands.length; offset += 4) {
                 LinearLayout line = row();
@@ -483,7 +498,7 @@ public final class MainActivity extends Activity {
                     String command = commands[index];
                     Button action = button(labels[index], BLUE, actionIds[index]);
                     action.setTextSize(12);
-                    action.setMinHeight(dp(84));
+                    action.setMinHeight(dp(64));
                     action.setTextColor(index == 0 ? GREEN : index == 1 ? RED : BLUE);
                     action.setCompoundDrawableTintList(action.getTextColors());
                     GradientDrawable tile = new GradientDrawable();
@@ -521,13 +536,13 @@ public final class MainActivity extends Activity {
             first.addView(button, weighted());
         }
 
-        Button more = button("Thao tác khác", NAVY, View.NO_ID);
+        Button more = button("Thao tác", NAVY, View.NO_ID);
         more.setEnabled(!busy && (oneDevice != null || !selected.isEmpty()));
         if (oneDevice == null) selectionButtons.add(more);
         more.setOnClickListener(view -> {
             List<ManagedDevice> targets = oneDevice == null ? room.selected(selected) : Collections.singletonList(oneDevice.copy());
-            String[] labels = {"Đóng băng C:", "Bỏ đóng băng C:", "Khóa màn hình", "Mở màn hình", "Mở website", "Đóng tất cả ứng dụng", "Cập nhật client"};
-            showPrompt(new AlertDialog.Builder(this).setTitle("Thao tác khác").setItems(labels, (dialog, index) -> {
+            String[] labels = {"Đóng băng", "Bỏ đóng băng", "Khóa", "Mở khóa", "Mở website", "Đóng ứng dụng", "Cập nhật client"};
+            showPrompt(new AlertDialog.Builder(this).setTitle("Thao tác").setItems(labels, (dialog, index) -> {
                 if (index < 4) confirmAction(room, targets, actions[index + 3]);
                 else if (index < 6) desktopPrompt(room, targets, index == 4);
                 else confirmAction(room, targets, "update-client");
@@ -544,7 +559,7 @@ public final class MainActivity extends Activity {
         url.setHint("20.com.vn");
         url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle((openWeb ? "Mở website" : "Đóng tất cả ứng dụng") + " • " + targets.size() + " máy")
+                .setTitle((openWeb ? "Mở website" : "Đóng ứng dụng") + " • " + targets.size() + " máy")
                 .setNegativeButton("Hủy", null).setPositiveButton("Thực hiện", null);
         if (openWeb) builder.setView(url);
         else builder.setMessage("Đóng tất cả cửa sổ ứng dụng trong phiên người dùng hiện tại. Ứng dụng có thể yêu cầu lưu dữ liệu. Dịch vụ hệ thống và ứng dụng chỉ chạy nền vẫn hoạt động.");
@@ -571,7 +586,7 @@ public final class MainActivity extends Activity {
                 try {
                     Set<String> addresses = new LinkedHashSet<>();
                     for (ManagedDevice target : targets) addresses.add(target.ip);
-                    for (ManagedDevice device : transport.discover(room.key, new ArrayList<>(addresses))) fresh.put(device.listKey(), device);
+                    for (ManagedDevice device : transport.discover(room.key, new ArrayList<>(addresses))) fresh.put(device.endpointKey(), device);
                 } catch (Exception error) { scanFailure = readable(error); }
 
                 final String scanError = scanFailure;
@@ -581,7 +596,7 @@ public final class MainActivity extends Activity {
                 String action = openWeb ? "open-web" : "close-apps";
                 try {
                     for (ManagedDevice selectedDevice : targets) tasks.submit(() -> {
-                        ManagedDevice target = fresh.get(selectedDevice.listKey());
+                        ManagedDevice target = fresh.get(selectedDevice.endpointKey());
                         String result = target == null
                                 ? (scanError.isEmpty() ? "Máy không trả lời khi xác minh lại" : scanError)
                                 : target.desktopBlockReason();
@@ -589,6 +604,7 @@ public final class MainActivity extends Activity {
                             try { result = transport.desktop(room.key, target, action, value); }
                             catch (Exception error) { result = readable(error); }
                         }
+                        history.record(room.id, selectedDevice.listKey(), openWeb ? "Mở website" : "Đóng ứng dụng", result);
                         return selectedDevice.hostname + " (" + selectedDevice.ip + ") • " + result;
                     });
                     for (int i = 0; i < targets.size(); i++) {
@@ -605,9 +621,9 @@ public final class MainActivity extends Activity {
                 } finally { workers.shutdownNow(); }
                 postResult(() -> {
                     for (ManagedDevice device : fresh.values())
-                        if (room.devices.containsKey(device.listKey())) {
+                        if (room.findEndpoint(device.endpointKey()) != null) {
                             device.lastSeen = System.currentTimeMillis();
-                            room.devices.put(device.listKey(), device);
+                            room.remember(device);
                         }
                     setBusy(false, "Đã xử lý yêu cầu");
                     showPrompt(new AlertDialog.Builder(this).setTitle("Kết quả từng máy")
@@ -667,6 +683,7 @@ public final class MainActivity extends Activity {
                 ManagedDevice device = targets.get(index);
                 final int position = index + 1;
                 if (destroyed) return;
+                int beforeResult = results.size();
                 postResult(() -> {
                     statusMessage = "(" + position + "/" + targets.size() + ") " + actionLabel(action) + " • " + device.hostname;
                     status.setText(statusMessage);
@@ -708,24 +725,32 @@ public final class MainActivity extends Activity {
                     if ("restart".equals(action)) postResult(() -> room.trackRestart(device, System.currentTimeMillis()));
                 } catch (Exception error) {
                     results.add(device.hostname + ": LỖI — " + (lockAction ? roomFeatureError(error) : readable(error)));
+                } finally {
+                    if (results.size() > beforeResult)
+                        history.record(room.id, device.listKey(), actionLabel(action), results.get(results.size() - 1));
                 }
             }
             if (!waitingLock.isEmpty()) {
                 try {
                     List<ManagedDevice> confirmed = transport.discover(key, confirmationTargets);
                     Map<String, ManagedDevice> byId = new LinkedHashMap<>();
-                    for (ManagedDevice value : confirmed) byId.put(value.listKey(), value);
+                    for (ManagedDevice value : confirmed) byId.put(value.endpointKey(), value);
                     String expected = "lock".equals(action) ? "locked" : "unlocked";
                     for (ManagedDevice requested : waitingLock.values()) {
-                        ManagedDevice actual = byId.get(requested.listKey());
+                        ManagedDevice actual = byId.get(requested.endpointKey());
                         if (actual != null && actual.lockAuthenticated && expected.equals(actual.lockState)) {
                             successes++;
                             results.add(requested.hostname + ": ĐÃ XÁC NHẬN — " + actual.lockDescription());
                         } else results.add(requested.hostname + ": CHƯA XÁC NHẬN — " + (actual == null ? "Máy chưa phản hồi" : actual.lockDescription()));
+                        history.record(room.id, requested.listKey(), actionLabel(action), results.get(results.size() - 1));
                     }
                     postResult(() -> { room.applyScan(confirmed, System.currentTimeMillis()); try { repository.save(rooms.values()); } catch (Exception ignored) { } });
                 } catch (Exception error) {
-                    for (ManagedDevice requested : waitingLock.values()) results.add(requested.hostname + ": CHƯA XÁC NHẬN — " + readable(error));
+                    for (ManagedDevice requested : waitingLock.values()) {
+                        String result = requested.hostname + ": CHƯA XÁC NHẬN — " + readable(error);
+                        results.add(result);
+                        history.record(room.id, requested.listKey(), actionLabel(action), result);
+                    }
                 }
             }
             final int successCount = successes;
@@ -852,7 +877,7 @@ public final class MainActivity extends Activity {
                         List<String> addresses = quickRoom ? known : scanTargets(room);
                         found.put(room.id, transport.discover(room.key, addresses, known, device -> postResult(() -> {
                             device.lastSeen = System.currentTimeMillis();
-                            room.devices.put(device.listKey(), device.copy());
+                            room.remember(device.copy());
                             if (!scanRenderScheduled) {
                                 scanRenderScheduled = true;
                                 handler.postDelayed(() -> {
@@ -950,7 +975,7 @@ public final class MainActivity extends Activity {
             content.addView(entry);
         }
         if (room.playlist.files.isEmpty()) content.addView(note("Chưa chọn ảnh/video. Nội dung phòng khác không được dùng thay cho phòng này."));
-        content.addView(note("Gửi cập nhật chỉ tới máy online trong phòng này. Máy đang tắt/chưa phản hồi vẫn giữ nội dung cũ và hiển thị chờ gửi. Khi máy online, chọn Gửi lại cho cả phòng. Nội dung được lưu riêng trên máy con; giữ nguyên trạng thái đóng băng C:."));
+        content.addView(note("Gửi cập nhật chỉ tới máy online trong phòng này. Máy đang tắt/chưa phản hồi vẫn giữ nội dung cũ và hiển thị chờ gửi. Khi máy online, chọn Gửi lại cho cả phòng. Nội dung được lưu trong RoomTN20Data trên ổ Windows của máy con, với ngoại lệ UWF được chuẩn bị khi cài client."));
         for (ManagedDevice device : room.devices.values()) content.addView(text(device.hostname + ": " + mediaStatus(room, device), 13, Color.DKGRAY), matchWrap());
     }
 
@@ -1043,13 +1068,18 @@ public final class MainActivity extends Activity {
             List<String> results = new ArrayList<>();
             int successes = 0;
             final Map<String, ManagedDevice> fresh = new LinkedHashMap<>();
-            try { for (ManagedDevice device : transport.discover(key, discoveryTargets)) fresh.put(device.listKey(), device); }
+            try { for (ManagedDevice device : transport.discover(key, discoveryTargets)) fresh.put(device.endpointKey(), device); }
             catch (Exception error) { postResult(() -> setBusy(false, "Chưa gửi: không kiểm tra được máy trong phòng. " + readable(error))); return; }
             for (int i = 0; i < targets.size(); i++) {
                 ManagedDevice saved = targets.get(i);
-                ManagedDevice target = fresh.get(saved.listKey());
+                ManagedDevice target = fresh.get(saved.endpointKey());
                 if (destroyed) return;
-                if (target == null || !target.online) { results.add(saved.hostname + ": CHỜ GỬI — Máy offline/chưa phản hồi; chọn gửi lại khi online"); continue; }
+                if (target == null || !target.online) {
+                    String result = saved.hostname + ": CHỜ GỬI — Máy offline/chưa phản hồi; chọn gửi lại khi online";
+                    results.add(result);
+                    history.record(room.id, saved.listKey(), "Gửi quảng cáo", result);
+                    continue;
+                }
                 final int position = i + 1;
                 try {
                     String result = mediaTransfer.send(targetRoomId, key, target, playlist, mediaStorage, (done, total) -> {
@@ -1059,6 +1089,7 @@ public final class MainActivity extends Activity {
                     successes++;
                     results.add(target.hostname + ": OK — " + result);
                 } catch (Exception error) { results.add(target.hostname + ": LỖI — " + roomFeatureError(error)); }
+                finally { history.record(room.id, saved.listKey(), "Gửi quảng cáo", results.get(results.size() - 1)); }
             }
             final int successCount = successes;
             postResult(() -> {
@@ -1206,11 +1237,11 @@ public final class MainActivity extends Activity {
         switch (action) {
             case "wake": return "Bật";
             case "shutdown": return "Tắt";
-            case "restart": return "Khởi động lại";
-            case "freeze": return "Đóng băng C:";
-            case "unfreeze": return "Bỏ đóng băng C:";
-            case "lock": return "Khóa màn hình";
-            case "unlock": return "Mở màn hình";
+            case "restart": return "reboot";
+            case "freeze": return "Đóng băng";
+            case "unfreeze": return "Bỏ đóng băng";
+            case "lock": return "Khóa";
+            case "unlock": return "Mở khóa";
             case "update-client": return "Cập nhật client";
             default: throw new IllegalArgumentException("Unsupported action");
         }
@@ -1224,7 +1255,7 @@ public final class MainActivity extends Activity {
         String value = readable(error);
         if (value.contains("LOCK_UI_UNAVAILABLE")) return "Chưa có phiên người dùng để hiển thị. Yêu cầu khóa/mở đã được lưu và sẽ áp dụng khi màn hình hoạt động; hiện chưa xác nhận thành công";
         if (value.contains("LOCK_UI_TIMEOUT")) return "Màn hình chưa xác nhận yêu cầu khóa/mở. Yêu cầu đang chờ; hãy kiểm tra máy và quét lại";
-        if (value.contains("MEDIA_STORAGE") || value.contains("MEDIA_ROOT")) return "Máy chưa có nơi lưu quảng cáo bền vững. Cài lại client mới và kiểm tra ổ dữ liệu không đóng băng";
+        if (value.contains("MEDIA_STORAGE") || value.contains("MEDIA_ROOT")) return "Máy chưa có nơi lưu quảng cáo bền vững. Cài lại client mới để chuẩn bị thư mục trên ổ Windows và ngoại lệ UWF";
         if (value.contains("MEDIA_TOO_LARGE")) return "Nội dung vượt giới hạn dung lượng của máy";
         if (value.contains("MEDIA_HASH") || value.contains("MEDIA_SIGNATURE")) return "Không xác minh được nội dung gửi tới máy; nội dung cũ được giữ, hãy chọn gửi lại";
         return value;
@@ -1232,42 +1263,43 @@ public final class MainActivity extends Activity {
 
     private LinearLayout card() {
         LinearLayout value = column();
-        value.setPadding(dp(14), dp(12), dp(14), dp(12));
+        value.setPadding(dp(12), dp(7), dp(12), dp(7));
         GradientDrawable background = new GradientDrawable();
         background.setColor(Color.WHITE);
         background.setCornerRadius(dp(10));
         background.setStroke(dp(1), Color.rgb(220, 228, 235));
         value.setBackground(background);
         LinearLayout.LayoutParams params = matchWrap();
-        params.setMargins(0, dp(5), 0, dp(5));
+        params.setMargins(0, dp(3), 0, dp(3));
         value.setLayoutParams(params);
         return value;
     }
 
     private void compact(Button button) {
-        button.setPadding(dp(3), dp(8), dp(3), dp(8));
+        button.setPadding(dp(3), dp(5), dp(3), dp(5));
         button.setMaxLines(2);
-        button.setMinHeight(dp(66));
+        button.setMinHeight(dp(48));
     }
 
     private int iconFor(String label) {
         switch (label) {
             case "Bật": case "Tắt": case "Bật máy": case "Tắt máy": return R.drawable.ic_ui_power;
-            case "Khởi động lại": case "Cập nhật": case "Cập nhật client": return R.drawable.ic_ui_restart;
-            case "Đóng băng C:": case "UWF ổ C": return R.drawable.ic_ui_freeze;
-            case "Bỏ đóng băng C:": return R.drawable.ic_ui_thaw;
-            case "Khóa màn hình": return R.drawable.ic_ui_lock;
-            case "Mở màn hình": return R.drawable.ic_ui_unlock;
+            case "reboot": case "Cập nhật": case "Cập nhật client": return R.drawable.ic_ui_restart;
+            case "Đóng băng": case "UWF ổ C": return R.drawable.ic_ui_freeze;
+            case "Bỏ đóng băng": return R.drawable.ic_ui_thaw;
+            case "Khóa": return R.drawable.ic_ui_lock;
+            case "Mở khóa": return R.drawable.ic_ui_unlock;
             case "Mở website": return R.drawable.ic_ui_globe;
-            case "Đóng tất cả ứng dụng": return R.drawable.ic_ui_close_apps;
+            case "Đóng ứng dụng": return R.drawable.ic_ui_close_apps;
             case "Quét LAN": return R.drawable.ic_ui_scan;
             case "Mạng LAN": case "Địa chỉ IP": case "Địa chỉ MAC": return R.drawable.ic_ui_network;
             case "Quảng cáo": case "+ Chọn ảnh / video": return R.drawable.ic_ui_media;
             case "Gửi lại cho cả phòng": return R.drawable.ic_ui_restart;
-            case "⋮": case "Thao tác khác": return R.drawable.ic_ui_more;
+            case "⋮": return R.drawable.ic_ui_menu_vertical;
+            case "Thao tác": return R.drawable.ic_ui_controls;
             case "‹ Quay lại": return R.drawable.ic_ui_back;
             case "+ Thêm phòng": return R.drawable.ic_ui_add;
-            case "Lần thấy cuối": case "Thời lượng": return R.drawable.ic_ui_clock;
+            case "Lần thấy cuối": case "Thời lượng": case "Nhật ký máy": return R.drawable.ic_ui_clock;
             case "Xóa": return R.drawable.ic_ui_trash;
             case "Lên": return R.drawable.ic_ui_up;
             case "Xuống": return R.drawable.ic_ui_down;
@@ -1286,17 +1318,17 @@ public final class MainActivity extends Activity {
         button.setMinWidth(0);
         button.setMinimumWidth(0);
         button.setGravity(Gravity.CENTER);
-        button.setPadding(dp(6), dp(10), dp(6), dp(10));
+        button.setPadding(dp(5), dp(6), dp(5), dp(6));
         button.setMaxLines(2);
-        button.setMinHeight(dp(64));
+        button.setMinHeight(dp(48));
         button.setStateListAnimator(null);
         int icon = iconFor(value);
         if (icon != 0) {
             android.graphics.drawable.Drawable drawable = getDrawable(icon).mutate();
             drawable.setTintList(button.getTextColors());
-            drawable.setBounds(0, 0, dp(23), dp(23));
+            drawable.setBounds(0, 0, dp(20), dp(20));
             button.setCompoundDrawables(null, drawable, null, null);
-            button.setCompoundDrawablePadding(dp(6));
+            button.setCompoundDrawablePadding(dp(4));
             if ("⋮".equals(value)) button.setText("");
             if ("‹ Quay lại".equals(value)) button.setText("Quay lại");
             if ("+ Thêm phòng".equals(value)) button.setText("Thêm phòng");
@@ -1315,6 +1347,6 @@ public final class MainActivity extends Activity {
     private LinearLayout column() { LinearLayout view = new LinearLayout(this); view.setOrientation(LinearLayout.VERTICAL); return view; }
     private LinearLayout row() { LinearLayout view = new LinearLayout(this); view.setOrientation(LinearLayout.HORIZONTAL); view.setGravity(Gravity.CENTER_VERTICAL); return view; }
     private LinearLayout.LayoutParams matchWrap() { return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); }
-    private LinearLayout.LayoutParams weighted() { LinearLayout.LayoutParams value = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1); value.setMargins(dp(2), dp(3), dp(2), dp(3)); return value; }
+    private LinearLayout.LayoutParams weighted() { LinearLayout.LayoutParams value = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1); value.setMargins(dp(2), dp(2), dp(2), dp(2)); return value; }
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 }

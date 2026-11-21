@@ -64,7 +64,7 @@ final class RoomRepository {
             for (ManagedDevice device : room.devices.values()) {
                 devices.put(new JSONObject().put("id", device.id).put("hostname", device.hostname).put("ip", device.ip)
                         .put("mac", device.mac).put("uwf", device.uwf).put("capabilities", device.capabilities)
-                        .put("stateAuthenticated", device.stateAuthenticated).put("agentVersion", device.agentVersion).put("lastSeen", device.lastSeen));
+                        .put("stateAuthenticated", device.stateAuthenticated).put("agentVersion", device.agentVersion).put("lastSeen", device.lastSeen).put("slot", device.slot));
             }
             JSONArray media = new JSONArray();
             room.playlist.validate();
@@ -86,6 +86,7 @@ final class RoomRepository {
             device.agentVersion = value.optString("agentVersion", "unknown");
             device.stateAuthenticated = value.optBoolean("stateAuthenticated", false);
             device.lastSeen = value.optLong("lastSeen");
+            device.slot = value.optString("slot", "");
             device.online = false; // Saved presence never proves that a PC is still reachable.
             room.devices.put(device.listKey(), device);
         }

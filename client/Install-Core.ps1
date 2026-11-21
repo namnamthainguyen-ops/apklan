@@ -41,6 +41,7 @@ function ConvertTo-LanPowerManagementKey {
 }
 
 function Assert-LanPowerWritableSystem {
+    $windowsVolume = [IO.Path]::GetPathRoot($env:WINDIR).TrimEnd([char[]]'\:')
     try {
         $filter = Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Filter -ErrorAction Stop
     }
@@ -55,10 +56,10 @@ function Assert-LanPowerWritableSystem {
     if ($filter.CurrentEnabled) {
         try {
             $volumes = @(Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Volume -ErrorAction Stop)
-            if (@($volumes | Where-Object { $_.CurrentSession -and $_.DriveLetter -in @('C:', 'C') }).Count -eq 0) {
-                throw 'C: volume state is missing.'
+            if (@($volumes | Where-Object { $_.CurrentSession -and ([string]$_.DriveLetter).TrimEnd(':') -ieq $windowsVolume }).Count -eq 0) {
+                throw 'Windows volume state is missing.'
             }
-            $active = @($volumes | Where-Object { $_.CurrentSession -and $_.Protected -and $_.DriveLetter -in @('C:', 'C') }).Count -gt 0
+            $active = @($volumes | Where-Object { $_.CurrentSession -and $_.Protected -and ([string]$_.DriveLetter).TrimEnd(':') -ieq $windowsVolume }).Count -gt 0
         }
         catch {
             throw 'UWF_STATE_UNAVAILABLE: UWF is active but C: protection could not be checked. Check locally before installing the agent.'
