@@ -54,6 +54,8 @@ public final class MainActivity extends Activity {
     private static final int RED = Color.rgb(183, 45, 45);
     private static final int AMBER = Color.rgb(155, 95, 0);
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService commandExecutor = Executors.newSingleThreadExecutor();
+    private final ScanFence scanFence = new ScanFence();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<String, RoomModel> rooms = new LinkedHashMap<>();
     private final Set<String> selected = new LinkedHashSet<>();
@@ -164,6 +166,7 @@ public final class MainActivity extends Activity {
         mediaTransfer.close();
         updater.close();
         executor.shutdownNow();
+        commandExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -311,7 +314,7 @@ public final class MainActivity extends Activity {
         addButton.setVisibility(room == null ? View.VISIBLE : View.GONE);
         backButton.setEnabled(!busy);
         addButton.setEnabled(!busy && !loadFailed);
-        refreshButton.setEnabled(!busy && !rooms.isEmpty());
+        refreshButton.setEnabled(!busy && !rooms.isEmpty() && scanningRooms.isEmpty());
         fixedActions.removeAllViews();
         boolean roomList = room != null && device == null && !showingMedia;
         fixedActions.setVisibility(roomList ? View.VISIBLE : View.GONE);
@@ -510,7 +513,7 @@ public final class MainActivity extends Activity {
                     tile.setCornerRadius(dp(10));
                     tile.setStroke(dp(1), Color.rgb(218, 226, 235));
                     action.setBackground(tile);
-                    action.setEnabled(!busy && ("wake".equals(command) || oneDevice.online && room.scanError.isEmpty()));
+                    action.setEnabled(!busy && ("wake".equals(command) || VpnTargets.isPrivateAddress(oneDevice.ip)));
                     action.setOnClickListener(view -> {
                         List<ManagedDevice> target = Collections.singletonList(oneDevice.copy());
                         if ("open-web".equals(command) || "close-apps".equals(command)) desktopPrompt(room, target, "open-web".equals(command));
@@ -530,7 +533,7 @@ public final class MainActivity extends Activity {
         for (int i = 0; i < 3; i++) {
             String action = actions[i];
             Button button = button(actionLabel(action), colors[i], ids[i]);
-            button.setEnabled(!busy && (oneDevice == null ? !selected.isEmpty() : "wake".equals(action) || (oneDevice.online && room.scanError.isEmpty())));
+            button.setEnabled(!busy && (oneDevice == null ? !selected.isEmpty() : "wake".equals(action) || VpnTargets.isPrivateAddress(oneDevice.ip)));
             button.setOnClickListener(view -> {
                 List<ManagedDevice> targets = oneDevice == null ? room.selected(selected) : Collections.singletonList(oneDevice.copy());
                 confirmAction(room, targets, action);
@@ -583,14 +586,15 @@ public final class MainActivity extends Activity {
                 }
             }
             dialog.dismiss();
+            scanFence.commandStarted();
             setBusy(true, "Đang gửi yêu cầu…");
-            executor.execute(() -> {
+            commandExecutor.execute(() -> {
                 Map<String, ManagedDevice> fresh = new LinkedHashMap<>();
                 String scanFailure = "";
                 try {
                     Set<String> addresses = new LinkedHashSet<>();
                     for (ManagedDevice target : targets) addresses.add(target.ip);
-                    for (ManagedDevice device : transport.discover(room.key, new ArrayList<>(addresses))) fresh.put(device.endpointKey(), device);
+                    for (ManagedDevice device : targets) fresh.put(device.endpointKey(), device.copy());
                 } catch (Exception error) { scanFailure = readable(error); }
 
                 final String scanError = scanFailure;
@@ -604,6 +608,12 @@ public final class MainActivity extends Activity {
                         String result = target == null
                                 ? (scanError.isEmpty() ? "Máy không trả lời khi xác minh lại" : scanError)
                                 : target.desktopBlockReason();
+                        if (target != null && !result.isEmpty()) {
+                            try {
+                                for (ManagedDevice actual : transport.probe(room.key, Collections.singletonList(target)))
+                                    if (actual.endpointKey().equals(target.endpointKey())) { target = actual; result = actual.desktopBlockReason(); break; }
+                            } catch (Exception probeError) { }
+                        }
                         if (target != null && result.isEmpty()) {
                             try { result = transport.desktop(room.key, target, action, value); }
                             catch (java.net.SocketTimeoutException error) { result = "CHƯA XÁC NHẬN — Máy có thể đã thực hiện lệnh; không tự gửi lệnh mới"; }
@@ -662,7 +672,7 @@ public final class MainActivity extends Activity {
                 : "wake".equals(action) ? "Magic Packet chỉ gửi yêu cầu bật; cần quét lại để xác nhận. Qua VPN cần ít nhất một máy relay đang online trong LAN đích hoặc router hỗ trợ WOL."
                 : ("freeze".equals(action) || "unfreeze".equals(action)) ? "Thay đổi UWF C: có hiệu lực sau khi khởi động lại. App không tự khởi động lại máy."
                 : ("lock".equals(action) || "unlock".equals(action)) ? "Khóa/mở phiên sử dụng của phòng máy. Khi khóa, màn hình người dùng hiển thị quảng cáo đã gửi. Đây không phải khóa đăng nhập Windows. App sẽ xác nhận trạng thái thực sau lệnh."
-                : "Các máy Offline / chưa rõ trạng thái sẽ được bỏ qua. Hãy lưu công việc trước khi tắt hoặc khởi động lại.";
+                : "Gửi trực tiếp tới IP đã lưu, kể cả máy đang được đánh dấu Offline. Không có phản hồi sẽ báo chưa xác nhận. Hãy lưu công việc trước khi tắt hoặc khởi động lại.";
         showPrompt(new AlertDialog.Builder(this).setTitle(actionLabel(action) + " • " + targets.size() + " máy")
                 .setMessage("Phòng: " + room.name + "\n" + explanation).setNegativeButton("Hủy", null)
                 .setPositiveButton("Thực hiện", (dialog, which) -> runAction(room, targets, action)).create());
@@ -670,126 +680,101 @@ public final class MainActivity extends Activity {
 
     private void runAction(RoomModel room, List<ManagedDevice> targets, String action) {
         if (busy || destroyed) return;
-        final String key = room.key;
-        final boolean scanFailed = !room.scanError.isEmpty();
-        final boolean vpnRoom = !room.networkTargets.trim().isEmpty();
-        ManagedDevice eligibleRelay = null;
-        for (ManagedDevice candidate : room.devices.values()) if (candidate.online && !scanFailed && candidate.supports("wolrelay")) { eligibleRelay = candidate.copy(); break; }
-        final ManagedDevice relay = eligibleRelay;
-        final boolean lockAction = "lock".equals(action) || "unlock".equals(action);
-        final boolean verifyState = lockAction || "freeze".equals(action) || "unfreeze".equals(action) || "wake".equals(action);
-        final List<String> confirmationTargets;
-        try { confirmationTargets = verifyState ? scanTargets(room) : Collections.emptyList(); }
-        catch (Exception error) { statusMessage = "Không xác nhận được màn hình: " + readable(error); render(); return; }
-        setBusy(true, "Đang " + actionLabel(action) + " cho " + targets.size() + " máy…");
-        executor.execute(() -> {
-            List<String> results = new ArrayList<>();
-            int successes = 0;
-            Map<String, ManagedDevice> waitingLock = new LinkedHashMap<>();
-            for (int index = 0; index < targets.size(); index++) {
-                ManagedDevice device = targets.get(index);
-                final int position = index + 1;
-                if (destroyed) return;
-                int beforeResult = results.size();
+        scanFence.commandStarted();
+        final List<ManagedDevice> copies = new ArrayList<>();
+        for (ManagedDevice target : targets) copies.add(target.copy());
+        ManagedDevice candidate = null;
+        for (ManagedDevice device : room.devices.values())
+            if (device.online && device.supports("wolrelay")) { candidate = device.copy(); break; }
+        final ManagedDevice relay = candidate;
+        setBusy(true, "Đang gửi trực tiếp tới " + copies.size() + " máy…");
+        commandExecutor.execute(() -> {
+            try {
+                List<String> results = CommandBatch.run(copies, 32,
+                        device -> executeTarget(room, device, action, relay), (device, result, count) -> postResult(() -> {
+                            statusMessage = count + "/" + copies.size() + " • " + result;
+                            status.setText(statusMessage);
+                        }));
                 postResult(() -> {
-                    statusMessage = "(" + position + "/" + targets.size() + ") " + actionLabel(action) + " • " + device.hostname;
-                    status.setText(statusMessage);
+                    setBusy(false, "Đã xử lý " + actionLabel(action) + " • " + copies.size() + " máy");
+                    try { repository.save(rooms.values()); } catch (Exception ignored) { }
+                    showPrompt(new AlertDialog.Builder(this).setTitle("Kết quả từng máy")
+                            .setMessage(String.join("\n\n", results)).setPositiveButton("Đóng", null).create());
                 });
-                try {
-                    if (!"wake".equals(action) && (!device.online || scanFailed)) {
-                        results.add(device.hostname + ": BỎ QUA — Offline / chưa xác định trạng thái");
-                        continue;
-                    }
-                    if (!"wake".equals(action) && key.isEmpty()) throw new IllegalStateException("Không đọc được khóa mã hóa của phòng");
-                    if (("freeze".equals(action) || "unfreeze".equals(action)) && !device.supportsUwf()) {
-                        throw new IllegalStateException("UWF chưa sẵn sàng hoặc agent cũ. Cài lại client mới để tự chuẩn bị UWF, khởi động lại nếu được yêu cầu rồi quét");
-                    }
-                    if (lockAction && (!device.lockAuthenticated || !device.supports("sessionlock"))) throw new IllegalStateException("Cần cập nhật client có màn hình khóa/quảng cáo");
-                    if ("update-client".equals(action) && !device.supports("updatecontrol")) throw new IllegalStateException("Cần client Windows 1.4.8 trở lên. Chờ client tự cập nhật hoặc cài đè bản mới để bật cập nhật từ APK.");
-                    String result;
-                    if ("wake".equals(action)) {
-                        String localResult = null;
-                        Exception localError = null;
-                        try { localResult = transport.wake(device); } catch (Exception error) { localError = error; }
-                        if (vpnRoom && relay != null && !key.isEmpty()) {
-                            result = "Relay " + relay.hostname + ": " + transport.relayWake(key, relay, device) + " • Cần quét lại để xác nhận máy đã bật";
-                        } else {
-                            if (localError != null) throw localError;
-                            result = localResult;
-                        }
-                    } else result = transport.commandWithProgress(key, device, action, stage -> postResult(() -> {
-                        statusMessage = device.hostname + " • " + stage;
-                        status.setText(statusMessage);
-                    }));
-                    if (verifyState) {
-                        waitingLock.put(device.listKey(), device);
-                        history.record(room.id, device.listKey(), actionLabel(action), "wake".equals(action)
-                                ? "ĐÃ GỬI TÍN HIỆU BẬT • Đang chờ máy online" : "ĐÃ NHẬN • Đang kiểm tra trạng thái thực");
-                    }
-                    else {
-                        successes++;
-                        boolean pending = "wake".equals(action) || "shutdown".equals(action) || "restart".equals(action) || "update-client".equals(action);
-                        results.add(device.hostname + (pending ? ": ĐÃ NHẬN — Chưa xác nhận hoàn tất • " : ": ĐÃ XÁC NHẬN — ") + result);
-                        if ("restart".equals(action)) postResult(() -> room.trackRestart(device, System.currentTimeMillis()));
-                    }
-                } catch (LanTransport.CommandRejectedException error) {
-                    results.add(device.hostname + ": BỊ TỪ CHỐI — " + (lockAction ? roomFeatureError(error) : readable(error)));
-                } catch (java.net.SocketTimeoutException error) {
-                    if (verifyState) {
-                        waitingLock.put(device.listKey(), device);
-                        history.record(room.id, device.listKey(), actionLabel(action), "CHỜ XÁC NHẬN TRẠNG THÁI • " + readable(error));
-                    }
-                    else results.add(device.hostname + ": CHƯA XÁC NHẬN — Máy có thể đã thực hiện lệnh; không tự gửi lệnh mới");
-                    if ("restart".equals(action)) postResult(() -> room.trackRestart(device, System.currentTimeMillis()));
-                } catch (Exception error) {
-                    results.add(device.hostname + ": LỖI — " + (lockAction ? roomFeatureError(error) : readable(error)));
-                } finally {
-                    if (results.size() > beforeResult)
-                        history.record(room.id, device.listKey(), actionLabel(action), results.get(results.size() - 1));
-                }
+            } catch (Exception error) {
+                postResult(() -> setBusy(false, "Chưa xác nhận đầy đủ: " + readable(error)));
             }
-            if (!waitingLock.isEmpty()) {
-                try {
-                    Map<String, ManagedDevice> byId = new LinkedHashMap<>();
-                    for (int attempt = 0; attempt < 3 && !destroyed; attempt++) {
-                        postResult(() -> status.setText("Đang xác nhận trạng thái thực • " + actionLabel(action)));
-                        for (ManagedDevice value : transport.discover(key, confirmationTargets)) byId.put(value.endpointKey(), value);
-                        boolean complete = true;
-                        for (ManagedDevice requested : waitingLock.values())
-                            if (!CommandConfirmation.matches(action, byId.get(requested.endpointKey()))) complete = false;
-                        if (complete) break;
-                    }
-                    for (ManagedDevice requested : waitingLock.values()) {
-                        ManagedDevice actual = byId.get(requested.endpointKey());
-                        if (CommandConfirmation.matches(action, actual)) {
-                            successes++;
-                            results.add(requested.hostname + ": ĐÃ XÁC NHẬN — " + CommandConfirmation.description(action, actual));
-                        } else results.add(requested.hostname + ": CHƯA XÁC NHẬN — " + (actual == null ? "Máy chưa phản hồi; chưa thể kết luận thất bại" : CommandConfirmation.description(action, actual)));
-                        history.record(room.id, requested.listKey(), actionLabel(action), results.get(results.size() - 1));
-                    }
-                    postResult(() -> {
-                        for (ManagedDevice actual : byId.values()) {
-                            actual.online = true;
-                            actual.lastSeen = System.currentTimeMillis();
-                            room.remember(actual);
-                        }
-                        try { repository.save(rooms.values()); } catch (Exception ignored) { }
-                    });
-                } catch (Exception error) {
-                    for (ManagedDevice requested : waitingLock.values()) {
-                        String result = requested.hostname + ": CHƯA XÁC NHẬN — " + readable(error);
-                        results.add(result);
-                        history.record(room.id, requested.listKey(), actionLabel(action), result);
-                    }
-                }
-            }
-            final int successCount = successes;
-            postResult(() -> {
-                setBusy(false, "Đã xử lý " + actionLabel(action) + " cho " + targets.size() + " máy • Xem kết quả xác nhận từng máy");
-                showPrompt(new AlertDialog.Builder(this).setTitle("Kết quả từng máy")
-                        .setMessage(String.join("\n\n", results)).setPositiveButton("Đóng", (dialog, which) -> refresh()).create());
-            });
         });
+    }
+
+    private boolean commandRenderScheduled;
+    private void scheduleCommandRender() {
+        if (commandRenderScheduled) return;
+        commandRenderScheduled = true;
+        handler.postDelayed(() -> {
+            commandRenderScheduled = false;
+            if (!destroyed && busy) render();
+        }, 80);
+    }
+
+    private String executeTarget(RoomModel room, ManagedDevice requested, String action, ManagedDevice relay) {
+        String outcome;
+        ManagedDevice device = requested;
+        boolean lockAction = "lock".equals(action) || "unlock".equals(action);
+        try {
+            if (destroyed) return requested.hostname + ": Đã dừng chờ";
+            if (!"wake".equals(action) && room.key.isEmpty()) throw new IllegalStateException("Không đọc được khóa phòng");
+            // Cached online/offline is informational. Always try the selected private IP directly.
+            if (!"wake".equals(action) && !VpnTargets.isPrivateAddress(device.ip)) throw new IllegalStateException("IP máy không hợp lệ");
+            String message;
+            if ("wake".equals(action)) {
+                try { message = transport.wake(device); }
+                catch (Exception localError) {
+                    if (relay == null) throw localError;
+                    message = "Không gửi được broadcast cục bộ";
+                }
+                if (!room.networkTargets.trim().isEmpty() && relay != null)
+                    message = "Relay " + relay.hostname + ": " + transport.relayWake(room.key, relay, device);
+                outcome = "ĐÃ GỬI TÍN HIỆU BẬT — Chờ máy online • " + message;
+            } else {
+                message = transport.commandWithProgress(room.key, device, action, stage -> postResult(() -> status.setText(requested.hostname + " • " + stage)));
+                if (CommandConfirmation.applyAcknowledgement(action, message, device)) {
+                    device.online = true;
+                    device.lastSeen = System.currentTimeMillis();
+                    ManagedDevice confirmed = device;
+                    postResult(() -> { room.remember(confirmed); scheduleCommandRender(); });
+                    outcome = "ĐÃ XÁC NHẬN — " + CommandConfirmation.description(action, device);
+                } else if (lockAction || "freeze".equals(action) || "unfreeze".equals(action)) {
+                    outcome = confirmTarget(room, device, action);
+                } else outcome = "ĐÃ NHẬN — Chưa xác nhận hoàn tất • " + message;
+                if ("restart".equals(action)) postResult(() -> room.trackRestart(requested, System.currentTimeMillis()));
+            }
+        } catch (java.net.SocketTimeoutException error) {
+            history.record(room.id, requested.listKey(), actionLabel(action), "CHỜ XÁC NHẬN • " + readable(error));
+            outcome = lockAction || "freeze".equals(action) || "unfreeze".equals(action)
+                    ? confirmTarget(room, requested, action) : "CHƯA XÁC NHẬN — Máy có thể đã thực hiện lệnh";
+        } catch (LanTransport.CommandRejectedException error) {
+            outcome = "BỊ TỪ CHỐI — " + (lockAction ? roomFeatureError(error) : readable(error));
+        } catch (Exception error) {
+            outcome = "LỖI KẾT NỐI — " + readable(error);
+        }
+        String result = requested.hostname + " (" + requested.ip + "): " + outcome;
+        history.record(room.id, requested.listKey(), actionLabel(action), result);
+        return result;
+    }
+
+    private String confirmTarget(RoomModel room, ManagedDevice requested, String action) {
+        for (int attempt = 0; attempt < 3 && !destroyed; attempt++) {
+            try {
+                for (ManagedDevice actual : transport.probe(room.key, Collections.singletonList(requested))) {
+                    if (!actual.endpointKey().equals(requested.endpointKey())) continue;
+                    postResult(() -> { actual.lastSeen = System.currentTimeMillis(); room.remember(actual); scheduleCommandRender(); });
+                    if (CommandConfirmation.matches(action, actual)) return "ĐÃ XÁC NHẬN — " + CommandConfirmation.description(action, actual);
+                }
+            } catch (Exception ignored) { }
+            if (attempt < 2) try { Thread.sleep(75L * (attempt + 1)); } catch (InterruptedException stopped) { Thread.currentThread().interrupt(); break; }
+        }
+        return "CHƯA XÁC NHẬN — Chưa có bằng chứng máy đạt trạng thái yêu cầu; không tự chạy lệnh mới";
     }
 
     private void addRoom() {
@@ -875,7 +860,9 @@ public final class MainActivity extends Activity {
     private void refresh(boolean quick) { refresh(quick, false); }
 
     private void refresh(boolean quick, boolean periodic) {
-        if (busy || destroyed || rooms.isEmpty()) return;
+        if (busy || destroyed || rooms.isEmpty() || !scanningRooms.isEmpty()) return;
+        final long scanEpoch = scanFence.capture();
+        final Map<String, List<ManagedDevice>> fastTargets = new LinkedHashMap<>();
         List<RoomModel> targets = new ArrayList<>();
         RoomModel current = rooms.get(roomId);
         if (current == null) targets.addAll(rooms.values()); else targets.add(current);
@@ -888,9 +875,15 @@ public final class MainActivity extends Activity {
             for (ManagedDevice device : room.devices.values()) if (VpnTargets.isPrivateAddress(device.ip)) addresses.add(device.ip);
             knownAddresses.put(room.id, new ArrayList<>(addresses));
             if (quick && !addresses.isEmpty() && (!periodic || started - room.lastFullScan < 300_000)) quickRooms.add(room.id);
+            if (quickRooms.contains(room.id)) {
+                List<ManagedDevice> snapshots = new ArrayList<>();
+                for (ManagedDevice device : room.devices.values()) snapshots.add(device.copy());
+                if (!snapshots.isEmpty()) fastTargets.put(room.id, snapshots);
+            }
             scanningRooms.add(room.id);
         }
-        setBusy(true, "Đang quét " + targets.size() + " phòng…");
+        if (!periodic) setBusy(true, "Đang quét " + targets.size() + " phòng…");
+        else refreshButton.setEnabled(false);
         executor.execute(() -> {
             Map<String, List<ManagedDevice>> found = new LinkedHashMap<>();
             Map<String, String> failures = new LinkedHashMap<>();
@@ -905,20 +898,23 @@ public final class MainActivity extends Activity {
                         List<String> known = knownAddresses.get(room.id);
                         boolean quickRoom = quickRooms.contains(room.id);
                         List<String> addresses = quickRoom ? known : scanTargets(room);
-                        found.put(room.id, transport.discover(room.key, addresses, known, device -> postResult(() -> {
+                        if (fastTargets.containsKey(room.id)) found.put(room.id, transport.probe(room.key, fastTargets.get(room.id)));
+                        else found.put(room.id, transport.discover(room.key, addresses, known, device -> postResult(() -> {
+                            if (!scanFence.accepts(scanEpoch)) return;
                             device.lastSeen = System.currentTimeMillis();
                             room.remember(device.copy());
                             if (!scanRenderScheduled) {
                                 scanRenderScheduled = true;
                                 handler.postDelayed(() -> {
                                     scanRenderScheduled = false;
-                                    if (!destroyed && !scanningRooms.isEmpty()) render();
+                                    if (!destroyed && scanFence.accepts(scanEpoch) && !scanningRooms.isEmpty() && !busy) render();
                                 }, 150);
                             }
                         }), quickRoom));
                         List<ManagedDevice> completed = found.get(room.id);
                         postResult(() -> {
                             scanningRooms.remove(room.id);
+                            if (!scanFence.accepts(scanEpoch)) return;
                             room.applyScan(completed, System.currentTimeMillis(), !quickRoom);
                             render();
                         });
@@ -931,13 +927,15 @@ public final class MainActivity extends Activity {
                 long now = System.currentTimeMillis();
                 for (RoomModel room : targets) {
                     scanningRooms.remove(room.id);
-                    if (!found.containsKey(room.id)) room.scanError = failures.getOrDefault(room.id, "Quét chưa hoàn tất");
+                    if (scanFence.accepts(scanEpoch) && !found.containsKey(room.id)) room.scanError = failures.getOrDefault(room.id, "Quét chưa hoàn tất");
                 }
                 String message = failures.isEmpty() ? "Đã cập nhật " + found.size() + " phòng • " + DateFormat.getTimeInstance().format(new Date(now))
                         : "Đã quét " + found.size() + " phòng, " + failures.size() + " phòng lỗi. Mở phòng để xem chi tiết";
                 try { repository.save(rooms.values()); }
                 catch (Exception error) { message += " • Không lưu được: " + readable(error); }
-                setBusy(false, message);
+                refreshButton.setEnabled(!busy && !rooms.isEmpty());
+                if (!periodic) setBusy(false, message);
+                else if (!busy && scanFence.accepts(scanEpoch)) { statusMessage = message; render(); }
             });
         });
     }

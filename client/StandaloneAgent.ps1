@@ -7,13 +7,15 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.4.10'
-$AgentVersionCode = 24
+$AgentVersion = '1.4.11'
+$AgentVersionCode = 25
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
 $usedNonces = @{}
 $desktopResults = @{}
+$script:CachedMac = ''
+$script:CachedMacTime = [DateTime]::MinValue
 $script:UwfState = 'unknown'
 $script:UwfAvailable = $false
 $script:LastUwfCheck = [DateTime]::MinValue
@@ -130,7 +132,9 @@ function Get-LanPowerRuntimeSnapshot {
 function Invoke-LanPowerSessionLock {
     param([ValidateSet('lock', 'unlock')][string]$Action)
     if (-not $script:DisplayRuntime) { throw 'LOCK_RUNTIME_UNAVAILABLE: Check the Windows-drive media directory, runtime files and interactive player.' }
-    return $script:DisplayRuntime.SetLocked($Action -eq 'lock')
+    $confirmed = $script:DisplayRuntime.SetLocked($Action -eq 'lock')
+    $state = if ($Action -eq 'lock') { 'locked' } else { 'unlocked' }
+    return "LOCK_CONFIRMED:$state; $confirmed"
 }
 
 function Get-HmacBase64 {
@@ -159,6 +163,7 @@ function Test-FixedTimeEqual {
 }
 
 function Get-PrimaryMacAddress {
+    if ($script:CachedMac -and ([DateTime]::UtcNow - $script:CachedMacTime).TotalSeconds -lt 30) { return $script:CachedMac }
     $adapter = Get-NetAdapter -Physical -ErrorAction SilentlyContinue |
         Sort-Object @{ Expression = { if ($_.Status -eq 'Up') { 0 } else { 1 } } }, ifIndex |
         Select-Object -First 1
@@ -177,7 +182,9 @@ function Get-PrimaryMacAddress {
     }
     $hex = ([string]$value -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
     if ($hex.Length -ne 12) { throw 'Cannot determine the Ethernet MAC address.' }
-    return (($hex -split '(.{2})' | Where-Object { $_ }) -join ':')
+    $script:CachedMac = (($hex -split '(.{2})' | Where-Object { $_ }) -join ':')
+    $script:CachedMacTime = [DateTime]::UtcNow
+    return $script:CachedMac
 }
 
 function Get-UwfState {
@@ -356,7 +363,7 @@ function Send-Acknowledgement {
 
 function Invoke-PowerAction {
     param([ValidateSet('shutdown', 'restart')][string]$Action)
-    Start-Sleep -Milliseconds 900
+    Start-Sleep -Milliseconds 150
     $uwf = Join-Path $env:WINDIR 'System32\uwfmgr.exe'
     if (Test-Path -LiteralPath $uwf) {
         if ($Action -eq 'shutdown') { & $uwf filter shutdown }
@@ -403,10 +410,10 @@ try {
             if ($bytes.Length -gt 8192) { continue }
             try {
                 $message = [Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json -ErrorAction Stop
-                if ($message.type -eq 'discover') {
+                if ($message.type -in @('discover', 'probe')) {
                     Write-DebugLog 'Processing discovery request'
                     if (-not $message.nonce -or -not $message.signature) { continue }
-                    $expected = Get-HmacBase64 $config.managementKey "discover`n$($message.nonce)"
+                    $expected = Get-HmacBase64 $config.managementKey "$($message.type)`n$($message.nonce)"
                     if (-not (Test-FixedTimeEqual $message.signature $expected)) {
                         Write-DebugLog 'Discovery signature mismatch'
                         continue
@@ -415,8 +422,9 @@ try {
                     $mac = Get-PrimaryMacAddress
                     $responseSignature = Get-HmacBase64 $config.managementKey "discovery`n$($message.nonce)`n$($config.deviceId)`n$hostname`n$mac"
                     if (-not $script:DisplayRuntime -and ([DateTime]::UtcNow - $script:RuntimeLastTry).TotalSeconds -ge 30) { Initialize-LanPowerRuntime -Config $config }
-                    $uwfState = Get-UwfState
-                    $capabilities = (Get-UwfCapabilities) + $bootCapability + ',updatecontrol,commandretry'
+                    $uwfState = if ($message.type -eq 'probe') { $script:UwfState } else { Get-UwfState }
+                    $baseCapabilities = if ($message.type -eq 'probe') { if ($script:UwfAvailable) { 'power,uwf,wolrelay' } else { 'power,wolrelay' } } else { Get-UwfCapabilities }
+                    $capabilities = $baseCapabilities + $bootCapability + ',updatecontrol,commandretry,fastcommands'
                     if (Test-LanPowerPilotUpdates) { $capabilities += ',pilotupdate' }
                     $display = Get-LanPowerRuntimeSnapshot
                     if ($display.available) { $capabilities += ',desktopactions,desktopretry' }
@@ -473,6 +481,10 @@ try {
                 $canonical = "command`n$($message.requestId)`n$($message.deviceId)`n$($message.action)`n$timestamp`n$($message.nonce)"
                 if ($message.action -eq 'wake') {
                     if (-not $message.PSObject.Properties['targetMac'] -or [string]$message.targetMac -cnotmatch '\A(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\z') { continue }
+                    $canonical += "`n$($message.targetMac)"
+                }
+                if ($message.action -notin @('wake', 'open-web', 'close-apps') -and $message.PSObject.Properties['targetMac']) {
+                    if ([string]$message.targetMac -cnotmatch '\A(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\z' -or [string]$message.targetMac -cne (Get-PrimaryMacAddress)) { continue }
                     $canonical += "`n$($message.targetMac)"
                 }
                 $desktopValue = ''

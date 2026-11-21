@@ -26,7 +26,8 @@ final class DeviceHistory {
                 next.put(previous.getJSONObject(i));
             String message = result.length() > 1200 ? result.substring(0, 1200) + "…" : result;
             next.put(new JSONObject().put("time", System.currentTimeMillis()).put("action", action).put("result", message));
-            writeFailed = !preferences.edit().putString(key, next.toString()).commit();
+            preferences.edit().putString(key, next.toString()).apply();
+            writeFailed = false;
         } catch (Exception error) { writeFailed = true; }
     }
 

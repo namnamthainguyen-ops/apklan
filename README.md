@@ -1,4 +1,4 @@
-# Room TN20 — Windows 1.4.10 / Android 1.5.7
+# Room TN20 — Windows 1.4.11 / Android 1.5.8
 
 [![Verify Room TN20](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml/badge.svg)](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml)
 
@@ -26,7 +26,7 @@ Mỗi phòng có danh sách máy riêng. Chạm một máy để xem tên, IP, M
 
 **Bản 1.4.0:** đồng bộ quảng cáo theo nội dung: chỉ tải tệp còn thiếu hoặc hỏng, giữ tệp đã có, báo tệp tải thêm và tệp bỏ khỏi danh sách phát. Đổi thứ tự hoặc thời lượng không tải lại ảnh/video. Client tự nhận định danh phần cứng khi ghost sang máy khác, giữ mã phòng và cấu hình đã cài.
 
-**Bản Android 1.5.7 / client 1.4.10:** phân biệt đã gửi, client đã nhận, đã xác nhận trạng thái và chưa xác nhận. Khóa/mở khóa xác nhận chậm không còn bị coi là từ chối; APK dò lại trạng thái có chữ ký tối đa 3 lượt. Đóng băng kiểm tra trạng thái cho lần khởi động tiếp theo; bật máy chỉ xác nhận khi máy phản hồi. Tắt/reboot/cập nhật nhận lệnh không đồng nghĩa đã hoàn tất. Client mới hỗ trợ gửi lại tối đa 2 lần bằng cùng mã yêu cầu; kết quả được giữ trong bộ nhớ 10 phút khi agent đang chạy để không thực hiện lặp. Nhật ký từng máy lưu riêng bước chờ xác nhận và kết quả cuối.
+**Bản Android 1.5.8 / client 1.4.11:** gửi trực tiếp tới IP đã biết, tối đa 32 máy song song; phản hồi máy nhanh không chờ máy chậm. Kết quả khóa/mở khóa đã được màn hình xác nhận và có chữ ký được dùng ngay, không quét lại toàn LAN. Chỉ máy chưa xác nhận mới được dò trực tiếp theo IP, dừng khi nhận đủ phản hồi đúng định danh và có chữ ký. Quét nền không khóa nút lệnh và không được ghi đè kết quả lệnh mới bằng trạng thái cũ. Màn hình khóa được hiện/ẩn và xác nhận trước khi tải/dừng ảnh, video. Runtime gửi lại trạng thái bị đường ống bận trong khoảng 50 ms thay vì chờ nhịp 3 giây. Gói mất được gửi lại bằng cùng mã, tối đa 2 lần; chưa có bằng chứng thực hiện thì báo chưa xác nhận. Nhật ký ghi nền, giao diện gộp các lần cập nhật để không dựng lại danh sách cho từng máy. WOL chỉ gửi tín hiệu; máy cần thời gian khởi động và Windows cần thời gian tắt/reboot.
 
 ## Ghost nhiều máy
 
@@ -39,8 +39,8 @@ Cài client **1.4.0** trên máy mẫu, nhập key phòng, cấu hình VPN nếu
 
 ## Tải về
 
-- **[Tải bộ cài client Windows 1.4.10 — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.10.exe)** — nhập key phòng rồi chọn **Cài / Cài đè**; chứa sẵn phần khóa/quảng cáo và tự chuẩn bị UWF khi được hỗ trợ.
-- **[Tải APK Room TN20 1.5.7](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.5.7.apk)** — Android 8.0 trở lên, cùng chữ ký để nâng cấp và giữ dữ liệu phòng.
+- **[Tải bộ cài client Windows 1.4.11 — một file EXE](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.11.exe)** — nhập key phòng rồi chọn **Cài / Cài đè**; chứa sẵn phần khóa/quảng cáo và tự chuẩn bị UWF khi được hỗ trợ.
+- **[Tải APK Room TN20 1.5.8](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.5.8.apk)** — Android 8.0 trở lên, cùng chữ ký để nâng cấp và giữ dữ liệu phòng.
 - [Tải toàn bộ mã nguồn và bộ cài Windows ZIP](https://github.com/namnamthainguyen-ops/apklan/archive/refs/heads/main.zip).
 - [Xem script cài Windows online](https://github.com/namnamthainguyen-ops/apklan/blob/main/install-online.ps1).
 - [Xem kết quả kiểm thử trên GitHub](https://github.com/namnamthainguyen-ops/apklan/actions/workflows/verify.yml).
@@ -57,7 +57,7 @@ Tự chọn key gồm đúng **8 ký tự ASCII in được**, phân biệt hoa/
 
 ### Bước 2 — Cài một file EXE trên từng máy Windows
 
-1. [Tải `RoomTN20-ClientSetup-1.4.10.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.10.exe), có thể chép cùng file này sang tất cả máy client. Để dùng quảng cáo, chuẩn bị ổ thư mục quảng cáo trên ổ Windows.
+1. [Tải `RoomTN20-ClientSetup-1.4.11.exe`](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-ClientSetup-1.4.11.exe), có thể chép cùng file này sang tất cả máy client. Để dùng quảng cáo, chuẩn bị ổ thư mục quảng cáo trên ổ Windows.
 2. Mở file với quyền Administrator, nhập key của phòng rồi bấm **Cài / Cài đè**. Không cần gỡ bản cũ; định danh theo phần cứng và mạng VPN đã lưu được giữ lại nếu không nhập cấu hình mới.
 3. Bộ cài kiểm tra client đã phản hồi đúng khóa/phiên bản, báo **Cài đặt thành công** rồi tự đóng sau 3 giây. Nếu UWF cần restart, thông báo sẽ ghi rõ; bạn tự khởi động lại khi sẵn sàng.
 
@@ -68,7 +68,7 @@ EXE tự cài/chuẩn bị UWF khi hệ điều hành hỗ trợ, không cần c
 **Windows IoT Enterprise/Enterprise/Education:** nếu chuẩn bị UWF bị lỗi thật, bộ cài giữ thông báo và không tự đóng như một lần cài hoàn tất. Mã lỗi DISM, phiên bản Windows và đường dẫn nhật ký được hiển thị để xử lý đúng nguyên nhân. Nhật ký chuẩn bị UWF nằm tại `C:\ProgramData\LanPowerStandalone\uwf-preparation.log`. Thiếu nguồn thành phần Windows hoặc chính sách Windows Update/WSUS có thể cần sửa nguồn cài tương ứng; bộ cài không báo UWF thành công khi kiểm tra thất bại.
 
 ```text
-EXE SHA-256: C12AAA9E82E4E8FB761C229750567DCED54C6FCECC47CAF223D6114FF65381ED
+EXE SHA-256: E962B7EAD3F5D64AD79660AF8A7C43B82D38A582A05E99195319D6A0D9A9BACF
 ```
 
 Bản EXE hiện chưa ký Authenticode; Windows có thể hiển thị nhà xuất bản chưa xác định. Thương hiệu hiển thị trong ứng dụng là **Room TN20 — Công ty TNHH TN20**, website **20.com.vn**.
@@ -83,7 +83,7 @@ $ErrorActionPreference = 'Stop'
 $key = Read-Host 'Nhap key phong gom 8 ky tu, khong khoang trang'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $url = 'https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/install-online.ps1'
-$expected = '483116E25C68A8E7567CDB6A8D3DB1C0DC5563862D22E17015FA02FB4DB5C2F0'
+$expected = 'DA6491FE8A2D32DD48816BD19FA2E29720226AAC2BD3B97F314A9017D68870AF'
 $file = Join-Path $env:TEMP ('lanpower-install-' + [Guid]::NewGuid().ToString('N') + '.ps1')
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
 if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $expected) { throw 'Installer checksum mismatch.' }
@@ -103,7 +103,7 @@ Bộ cài tự chuẩn bị Windows Feature UWF trên Windows IoT Enterprise, kh
 
 ### Bước 3 — Cài APK và quản lý máy
 
-1. [Tải APK Room TN20 1.5.7 trên điện thoại](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.5.7.apk), cho phép trình duyệt hoặc trình quản lý tệp cài ứng dụng từ nguồn này khi Android yêu cầu. Nếu Play Protect đề nghị quét, chọn quét và đợi kết quả.
+1. [Tải APK Room TN20 1.5.8 trên điện thoại](https://raw.githubusercontent.com/namnamthainguyen-ops/apklan/main/release/RoomTN20-1.5.8.apk), cho phép trình duyệt hoặc trình quản lý tệp cài ứng dụng từ nguồn này khi Android yêu cầu. Nếu Play Protect đề nghị quét, chọn quét và đợi kết quả.
 2. Mở **Room TN20**, thêm phòng, đặt tên phòng và nhập đúng key 8 ký tự đã cài trên các máy.
 3. Mở phòng, chọn **Quét mạng LAN**. Máy dùng đúng key sẽ được đưa vào danh sách phòng; app lưu lại tên, IP và MAC để tiếp tục hiển thị khi máy offline.
 4. Chạm một máy để xem chi tiết và dùng **Bật**, **Tắt**, **Restart**, **Khóa**, **Mở khóa**, **Đóng băng C:** hoặc **Mở đóng băng C:**.
@@ -126,7 +126,7 @@ Nên dùng MP4 mã hóa H.264/AAC và ảnh có kích thước phù hợp màn h
 
 Ảnh/video được truyền qua TLS với chứng thư máy đã được xác thực bằng key phòng; mỗi yêu cầu còn được ký HMAC và kiểm tra thời gian, nonce, dung lượng, SHA-256. Tối đa 20 mục, 128 MiB mỗi tệp và 256 MiB cho một bộ. Nội dung chỉ được dùng làm ảnh/video, không cài thêm chương trình. Nếu mất mạng hoặc tải lỗi, máy tiếp tục giữ bộ đã xác minh trước đó.
 
-Từ client 1.4.10, ảnh/video và trạng thái khóa nằm trong RoomTN20Data trên ổ cài Windows, thường là C:\RoomTN20Data. Bộ cài cấu hình ngoại lệ UWF riêng cho thư mục này để dữ liệu được giữ sau khởi động lại. Ngoại lệ mới áp dụng ở phiên sau. SYSTEM/Administrators có quyền ghi và người dùng có quyền đọc. Nội dung cũ được sao chép từ đường dẫn đã cấu hình nếu còn truy cập được, bản gốc được giữ lại.
+Từ client 1.4.11, ảnh/video và trạng thái khóa nằm trong RoomTN20Data trên ổ cài Windows, thường là C:\RoomTN20Data. Bộ cài cấu hình ngoại lệ UWF riêng cho thư mục này để dữ liệu được giữ sau khởi động lại. Ngoại lệ mới áp dụng ở phiên sau. SYSTEM/Administrators có quyền ghi và người dùng có quyền đọc. Nội dung cũ được sao chép từ đường dẫn đã cấu hình nếu còn truy cập được, bản gốc được giữ lại.
 
 Đây là **khóa sử dụng Room TN20**: player hiển thị trong phiên người dùng, hỗ trợ nhiều màn hình và phát nội dung đã tải kể cả khi mất mạng. Cơ chế không thay màn hình đăng nhập Windows và không chặn Ctrl+Alt+Del. Nếu cần hạn chế người dùng thoát ứng dụng kiểu kiosk, dùng tài khoản thường và cấu hình kiosk/Windows Shell Launcher phù hợp. [Microsoft: phiên dịch vụ](https://learn.microsoft.com/en-us/windows/win32/services/interactive-services), [Shell Launcher](https://learn.microsoft.com/en-us/windows/iot/iot-enterprise/customize/shell-launcher), [UWF](https://learn.microsoft.com/en-us/windows/configuration/unified-write-filter/).
 
@@ -220,10 +220,10 @@ Script sẽ:
 
 Cài APK lên điện thoại Android 8.0 trở lên. Mở Room TN20, thêm phòng bằng tên và key 8 ký tự rồi chọn `Quét LAN`.
 
-APK phát hành trong repository: `release/RoomTN20-1.5.7.apk`, `debuggable=false`. Giữ cùng chứng thư cũ để cài nâng cấp và giữ dữ liệu; tên chứng thư vẫn là Android Debug do tương thích với các bản đã cài. Đây chưa phải bản phân phối qua Google Play. Giao diện dùng vùng an toàn status bar/tai thỏ và thanh điều hướng, không đè lên giờ/thông báo của điện thoại.
+APK phát hành trong repository: `release/RoomTN20-1.5.8.apk`, `debuggable=false`. Giữ cùng chứng thư cũ để cài nâng cấp và giữ dữ liệu; tên chứng thư vẫn là Android Debug do tương thích với các bản đã cài. Đây chưa phải bản phân phối qua Google Play. Giao diện dùng vùng an toàn status bar/tai thỏ và thanh điều hướng, không đè lên giờ/thông báo của điện thoại.
 
 ```text
-APK SHA-256: 4CCDB186D297004BDF5BF5C61B4EC89BC29547806FEBA1101B98C54B432E4BB3
+APK SHA-256: E933E8C50F0414C892BC49D4A92AA3A0AA0444DC879BA465817EEDA0A2E896A4
 ```
 
 Để tự tìm bằng broadcast, điện thoại và t540 cần cùng broadcast domain, Wi-Fi không bật AP/client isolation. Nếu khác VLAN hoặc kết nối VPN, cấu hình IP/dải mạng trực tiếp trong mục **Mạng LAN/VPN** của phòng và cho phép định tuyến/firewall tương ứng.

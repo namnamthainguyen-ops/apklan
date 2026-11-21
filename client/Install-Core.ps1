@@ -449,9 +449,9 @@ function Resolve-LanPowerRuntimePayload {
     param([string]$Source, [string]$PayloadRoot, [ValidateSet('runtime','player')][string]$Kind)
     # These pins also let the older, three-script updater install the new signed
     # core without accepting unsigned sidecars or changing its trust key.
-    $fileName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime-1.4.7.dll' } else { 'RoomTN20.Player-1.4.7.exe' }
+    $fileName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime-1.4.11.dll' } else { 'RoomTN20.Player-1.4.11.exe' }
     $installedName = if ($Kind -eq 'runtime') { 'RoomTN20.Runtime.dll' } else { 'RoomTN20.Player.exe' }
-    $expectedHash = if ($Kind -eq 'runtime') { '17F1BE3FD9254817200BD8BC342514C1E501E4D2DB49301F41D78D795A13FF63' } else { '71F2B451B0D8F3C56F86B7734C7E3104D2B1C709D43539A58C8136D2C9FE33A0' }
+    $expectedHash = if ($Kind -eq 'runtime') { '5B091D06C5651CA9895C2B2687D710B8A6E5A9C174CD1132220528B4A2FDDB2C' } else { '5DE76DEBB7748EAD44ECF7A9F4969F003FE991A65BF41815A663FEAB35E467E1' }
     if (-not $Source) {
         $sourceTreeFile = Join-Path (Split-Path -Parent $PayloadRoot) ('release\' + $fileName)
         $extractedFile = Join-Path $PayloadRoot $installedName
@@ -601,7 +601,7 @@ function Test-LanPowerHandshakeSignature {
 
 function Wait-LanPowerInstalledAgent {
     param([string]$InstallPath, [string]$RoomKey, [int]$Port = 17840,
-        [string]$ExpectedVersion = '1.4.10', [int]$ExpectedVersionCode = 24,
+        [string]$ExpectedVersion = '1.4.11', [int]$ExpectedVersionCode = 25,
         [switch]$RequireMedia,
         [ValidateRange(1, 60)][int]$TimeoutSeconds = 20, [string]$ManagementKey)
     if ($RoomKey) { $ManagementKey = ConvertTo-LanPowerManagementKey $RoomKey }
@@ -779,8 +779,8 @@ function Invoke-LanPowerInstall {
         runtimeDataRoot = $mediaDataRoot
         runtimeSetupMessage = $mediaSetupMessage
         runtimePort = 17842
-        version = '1.4.10'
-        versionCode = 24
+        version = '1.4.11'
+        versionCode = 25
         installedAt = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json
     Set-LanPowerAtomicFile $configPath ([Text.Encoding]::ASCII.GetBytes($newConfig))

@@ -22,7 +22,8 @@ public final class DeviceHistoryTest {
                                         pending.put((String) values[0], (String) values[1]);
                                         return editor;
                                     }
-                                    if ("commit".equals(operation.getName())) { saved.putAll(pending); return true; }
+                                    if ("apply".equals(operation.getName())) { saved.putAll(pending); return null; }
+                                    if ("commit".equals(operation.getName())) throw new AssertionError("Command history must not wait for disk writes");
                                     throw new UnsupportedOperationException(operation.getName());
                                 });
                     }

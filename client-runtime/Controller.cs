@@ -17,8 +17,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
-[assembly: System.Reflection.AssemblyVersion("1.4.7.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.7.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.11.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.11.0")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Runtime")]
@@ -206,7 +206,7 @@ namespace RoomTN20.Runtime
                 Broadcast();
             }
             EnsurePlayer(true);
-            DateTime deadline = DateTime.UtcNow.AddSeconds(8);
+            DateTime deadline = DateTime.UtcNow.AddMilliseconds(1200);
             while (DateTime.UtcNow < deadline)
             {
                 lock (gate)
@@ -217,7 +217,7 @@ namespace RoomTN20.Runtime
                     if (current != null && !current.Unavailable && !current.WindowsLocked && current.Generation == requestGeneration && current.ReportedLocked == locked)
                         return locked ? "Room TN20 display locked; the interactive player confirmed the screen." : "Room TN20 display unlocked; the interactive player confirmed the screen.";
                 }
-                Thread.Sleep(100);
+                lock (gate) { Monitor.Wait(gate, 50); Broadcast(); }
             }
             uint active = WTSGetActiveConsoleSessionId();
             if(active==0 || active==UInt32.MaxValue) throw new InvalidOperationException("LOCK_NO_CONSOLE_USER: No signed-in console session is available. Desired state was saved.");
@@ -414,6 +414,7 @@ namespace RoomTN20.Runtime
                         player.Unavailable = reported == "ui-offline";
                         player.WindowsLocked = reported == "windows-locked";
                         player.LastAckUtc = DateTime.UtcNow;
+                        Monitor.PulseAll(gate);
                     }
                 }
             }

@@ -18,8 +18,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Screen = System.Windows.Forms.Screen;
 
-[assembly: System.Reflection.AssemblyVersion("1.4.7.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.7.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.11.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.11.0")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Display")]
@@ -223,9 +223,12 @@ namespace RoomTN20.Runtime
         [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
         [DllImport("user32.dll", SetLastError = true)] private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+        private long mediaLoadSequence;
         private void Apply(bool desired, string version)
         {
             bool reload = version != mediaVersion || (desired && !locked);
+            if (reload || !desired) mediaLoadSequence++;
+            long loadSequence = mediaLoadSequence;
             locked = desired;
             mediaVersion = version;
             if (desired && windows.Count != Screen.AllScreens.Length)
@@ -239,11 +242,33 @@ namespace RoomTN20.Runtime
             {
                 if (desired)
                 {
-                    if (reload) window.LoadPlaylist(version);
                     window.Show();
                     window.BringToMonitor();
+                    if (reload)
+                    {
+                        // Present the lock surface and send its render ACK before decoding media.
+                        // Unlock or a newer playlist invalidates this deferred load.
+                        DispatcherTimer load = new DispatcherTimer(DispatcherPriority.Background, app.Dispatcher);
+                        load.Interval = TimeSpan.FromMilliseconds(100);
+                        load.Tick += delegate {
+                            load.Stop();
+                            if (!disposed && locked && loadSequence == mediaLoadSequence && window.IsVisible)
+                                window.LoadPlaylist(version);
+                        };
+                        load.Start();
+                    }
                 }
-                else { window.StopMedia(); window.Hide(); }
+                else
+                {
+                    window.Hide();
+                    DispatcherTimer stop = new DispatcherTimer(DispatcherPriority.Background, app.Dispatcher);
+                    stop.Interval = TimeSpan.FromMilliseconds(100);
+                    stop.Tick += delegate {
+                        stop.Stop();
+                        if (!disposed && !locked && loadSequence == mediaLoadSequence) window.StopMedia();
+                    };
+                    stop.Start();
+                }
             }
         }
         public void Dispose()

@@ -6,14 +6,14 @@ const dgram = require('node:dgram');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 const { once } = require('node:events');
 
 function sign(key, value) { return crypto.createHmac('sha256', Buffer.from(key, 'base64')).update(value).digest('base64'); }
 function command(key, deviceId, overrides = {}) {
   const value = { type: 'command', requestId: crypto.randomUUID(), deviceId, action: 'shutdown', timestamp: Math.floor(Date.now() / 1000), nonce: crypto.randomUUID(), ...overrides };
   const canonical = `command\n${value.requestId}\n${value.deviceId}\n${value.action}\n${value.timestamp}\n${value.nonce}`;
-  value.signature = sign(key, canonical + (value.action === 'wake' ? `\n${value.targetMac}` : ''));
+  value.signature = sign(key, canonical + (value.targetMac ? `\n${value.targetMac}` : ''));
   return value;
 }
 async function startAgent(t, options = {}) {
@@ -90,10 +90,10 @@ test('real agent ignores malformed, oversized, unsigned and wrongly signed disco
   const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, `discover\n${nonce}`) }, 3000);
   assert.equal(reply.type, 'discovery'); assert.equal(reply.requestNonce, nonce); assert.equal(reply.deviceId, agent.deviceId);
   assert.equal(reply.signature, sign(agent.key, `discovery\n${nonce}\n${reply.deviceId}\n${reply.hostname}\n${reply.mac}`));
-  assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media', 'mediasync', 'desktopactions', 'desktopretry', 'boot-638000000000000000', 'updatecontrol', 'commandretry']));
+  assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media', 'mediasync', 'desktopactions', 'desktopretry', 'boot-638000000000000000', 'updatecontrol', 'commandretry', 'fastcommands']));
   assert.equal(reply.stateSignature, sign(agent.key, `state\n${nonce}\n${reply.deviceId}\n${reply.agentVersion}\n${reply.uwf}\n${reply.capabilities}`));
   assert.equal(reply.lockSignature, sign(agent.key, `lockstate\n${nonce}\n${reply.deviceId}\n${reply.lockState}\n${reply.mediaVersion}\n${reply.mediaPort}\n${reply.mediaCertSha256}`));
-  assert.equal(reply.clientVersionCode, 24);
+  assert.equal(reply.clientVersionCode, 25);
   assert.equal(reply.runtimeStatus, 'ready');
   assert.equal(reply.runtimeSignature, sign(agent.key, `runtime\n${nonce}\n${reply.deviceId}\n${reply.runtimeStatus}\n${reply.runtimeMessage}`));
   assert.equal(reply.updateSignature, sign(agent.key, `update\n${nonce}\n${reply.deviceId}\n${reply.clientVersionCode}\n${reply.latestVersion}\n${reply.updateStatus}\n${reply.updateMessage}`));
@@ -259,4 +259,39 @@ test('late display confirmation returns signed uncertainty, signed actual state 
     assert.equal(state.lockSignature, sign(agent.key, ['lockstate', nonce, state.deviceId, expectedState, state.mediaVersion, state.mediaPort, state.mediaCertSha256].join('\n')));
     assert.equal(agent.output().split('TEST_SESSION_LOCK=' + action).length - 1, 1);
   }
+});
+
+
+test('fast signed unicast probe returns current display state without accepting a discovery signature as a probe', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t);
+  const nonce = crypto.randomUUID();
+  assert.equal(await agent.exchange({ type: 'probe', nonce, signature: sign(agent.key, 'discover\n' + nonce) }), null);
+  const started = Date.now();
+  const reply = await agent.exchange({ type: 'probe', nonce, signature: sign(agent.key, 'probe\n' + nonce) }, 3000);
+  assert.equal(reply.type, 'discovery');
+  assert.equal(reply.requestNonce, nonce);
+  assert.match(reply.capabilities, /fastcommands/);
+  assert.equal(reply.lockState, 'unlocked');
+  assert.equal(reply.lockSignature, sign(agent.key, ['lockstate', nonce, reply.deviceId, reply.lockState, reply.mediaVersion, reply.mediaPort, reply.mediaCertSha256].join('\n')));
+  assert.ok(Date.now() - started < 1500, 'Probe must not wait for a full LAN scan');
+});
+
+test('production MAC lookup caches adapter queries and refreshes expired identity', { skip: process.platform !== 'win32' }, () => {
+  const output = execFileSync('powershell.exe', ['-NoProfile', '-File', path.join(__dirname, 'Mac-Cache.ps1'), '-AgentPath', path.join(__dirname, '..', 'client', 'StandaloneAgent.ps1')], { encoding: 'utf8' });
+  assert.match(output, /MAC_CACHE=PASS/);
+});
+
+
+test('MAC-bound commands cannot control a cloned ID at the wrong endpoint identity', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t);
+  for (const action of ['lock', 'shutdown']) {
+    const wrong = command(agent.key, agent.deviceId, { action, targetMac: '02:00:00:00:00:02' });
+    assert.equal(await agent.exchange(wrong), null);
+  }
+  assert.doesNotMatch(agent.output(), /TEST_POWER_ACTION|TEST_SESSION_LOCK/);
+  const request = command(agent.key, agent.deviceId, { action: 'lock', targetMac: '00:11:22:33:44:55' });
+  const reply = await agent.exchange(request, 3000);
+  assert.equal(reply.status, 'accepted');
+  assert.match(reply.message, /^LOCK_CONFIRMED:locked;/);
+  assert.deepEqual(await agent.exchange(request, 3000), reply);
 });

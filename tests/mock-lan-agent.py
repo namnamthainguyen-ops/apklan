@@ -90,17 +90,17 @@ def handle_request(udp, remote, data):
     try:
         message = json.loads(data)
         with LOCK:
-            if message.get("type") == "discover":
+            if message.get("type") in {"discover", "probe"}:
                 DISCOVERY_COUNT += 1
                 nonce = message["nonce"]
                 for device in DEVICES.values():
                     key = KEYS[device["room"]]
-                    if not device["online"] or not hmac.compare_digest(message["signature"], sign(key, f"discover\n{nonce}")):
+                    if not device["online"] or not hmac.compare_digest(message["signature"], sign(key, message["type"] + "\n" + nonce)):
                         continue
                     DISCOVERY_BY_ROOM[device["room"]] = DISCOVERY_BY_ROOM.get(device["room"], 0) + 1
                     response = {"type": "discovery", "requestNonce": nonce, "deviceId": device["id"],
                                 "hostname": device["hostname"], "mac": device["mac"], "agentVersion": "1.3.1",
-                                "uwf": uwf(device), "capabilities": "power,uwf,wolrelay,sessionlock,media,updatecontrol",
+                                "uwf": uwf(device), "capabilities": "power,uwf,wolrelay,sessionlock,media,updatecontrol,fastcommands",
                                 "lockState": "locked" if device["locked"] else "unlocked", "mediaVersion": device["mediaVersion"],
                                 "mediaPort": 17842, "mediaCertSha256": "a" * 64}
                     response["signature"] = sign(key, f"discovery\n{nonce}\n{device['id']}\n{device['hostname']}\n{device['mac']}")
@@ -115,7 +115,9 @@ def handle_request(udp, remote, data):
                 return
             key = KEYS[device["room"]]
             canonical = f"command\n{message['requestId']}\n{device['id']}\n{message['action']}\n{message['timestamp']}\n{message['nonce']}"
-            if message.get("action") == "wake":
+            if "targetMac" in message:
+                if message.get("action") != "wake" and message["targetMac"] != device["mac"]:
+                    return
                 canonical += "\n" + message["targetMac"]
             if abs(time.time() - int(message["timestamp"])) > 120 or message["nonce"] in device["nonces"]:
                 return
@@ -131,7 +133,7 @@ def handle_request(udp, remote, data):
                 detail = f"UWF {action} scheduled. Restart required. {uwf(device)}"
             if not rejected and action in {"lock", "unlock"}:
                 device["locked"] = action == "lock"
-                detail = "Interactive display confirmed " + action + "."
+                detail = "LOCK_CONFIRMED:" + ("locked" if action == "lock" else "unlocked") + "; Interactive display confirmed " + action + "."
                 if action in device.get("pendingLockActions", []):
                     status = "rejected"
                     detail = "LOCK_PLAYER_UNCONFIRMED: Desired state saved; display has not confirmed."
