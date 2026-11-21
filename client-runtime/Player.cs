@@ -18,8 +18,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Screen = System.Windows.Forms.Screen;
 
-[assembly: System.Reflection.AssemblyVersion("1.4.11.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.11.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.12.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.12.0")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Display")]

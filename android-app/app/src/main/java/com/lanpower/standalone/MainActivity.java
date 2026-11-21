@@ -467,6 +467,7 @@ public final class MainActivity extends Activity {
         detailField(info, "Cập nhật", device.updateAuthenticated ? device.latestVersion + " • " + device.updateDescription() : "Chưa xác thực");
         detailField(info, "Quảng cáo", mediaStatus(room, device));
         detailField(info, "Màn hình", device.lockDescription());
+        detailField(info, "Phiên Windows", device.runtimeAuthenticated ? device.runtimeMessage : "Chưa xác thực");
         content.addView(info);
         Button log = button("Nhật ký máy", NAVY, View.NO_ID);
         log.setOnClickListener(view -> {
@@ -764,17 +765,19 @@ public final class MainActivity extends Activity {
     }
 
     private String confirmTarget(RoomModel room, ManagedDevice requested, String action) {
+        String lastState = "";
         for (int attempt = 0; attempt < 3 && !destroyed; attempt++) {
             try {
                 for (ManagedDevice actual : transport.probe(room.key, Collections.singletonList(requested))) {
                     if (!actual.endpointKey().equals(requested.endpointKey())) continue;
+                    lastState = actual.lockDescription() + (actual.runtimeAuthenticated ? " • " + actual.runtimeMessage : "");
                     postResult(() -> { actual.lastSeen = System.currentTimeMillis(); room.remember(actual); scheduleCommandRender(); });
                     if (CommandConfirmation.matches(action, actual)) return "ĐÃ XÁC NHẬN — " + CommandConfirmation.description(action, actual);
                 }
             } catch (Exception ignored) { }
             if (attempt < 2) try { Thread.sleep(75L * (attempt + 1)); } catch (InterruptedException stopped) { Thread.currentThread().interrupt(); break; }
         }
-        return "CHƯA XÁC NHẬN — Chưa có bằng chứng máy đạt trạng thái yêu cầu; không tự chạy lệnh mới";
+        return "CHƯA XÁC NHẬN — " + (lastState.isEmpty() ? "Máy chưa trả trạng thái có chữ ký; không tự chạy lệnh mới" : lastState);
     }
 
     private void addRoom() {

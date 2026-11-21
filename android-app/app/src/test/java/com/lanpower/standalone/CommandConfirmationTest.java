@@ -7,10 +7,13 @@ public final class CommandConfirmationTest {
     @Test public void signedExplicitOutcomeConfirmsOnlyTheMatchingActionWithoutAnotherScan() {
         ManagedDevice device = new ManagedDevice("id", "pc", "127.0.0.1", "00:11:22:33:44:55");
         device.stateAuthenticated = true;
-        assertFalse(CommandConfirmation.applyAcknowledgement("unlock", "LOCK_CONFIRMED:locked; confirmed", device));
+        assertFalse(CommandConfirmation.applyAcknowledgement("unlock", "LOCK_CONFIRMED:locked; confirmed SESSION_INFO:Phien RDP #2", device));
+        assertFalse(device.runtimeAuthenticated);
         assertFalse(CommandConfirmation.applyAcknowledgement("lock", "Desired state saved", device));
         assertFalse(CommandConfirmation.applyAcknowledgement("lock", "LOCK_PLAYER_UNCONFIRMED", device));
-        assertTrue(CommandConfirmation.applyAcknowledgement("lock", "LOCK_CONFIRMED:locked; confirmed", device));
+        assertTrue(CommandConfirmation.applyAcknowledgement("lock", "LOCK_CONFIRMED:locked; confirmed SESSION_INFO:Phien RDP #2", device));
+        assertEquals("Phien RDP #2", device.runtimeMessage);
+        assertTrue(device.runtimeAuthenticated);
         assertTrue(CommandConfirmation.matches("lock", device));
         assertTrue(CommandConfirmation.applyAcknowledgement("unlock", "Room TN20 display unlocked; the interactive player confirmed the screen.", device));
         assertTrue(CommandConfirmation.matches("unlock", device));

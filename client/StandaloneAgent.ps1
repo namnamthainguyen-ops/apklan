@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$AgentVersion = '1.4.11'
-$AgentVersionCode = 25
+$AgentVersion = '1.4.12'
+$AgentVersionCode = 26
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $AgentRoot 'config.json'
 $Port = 17840
@@ -114,7 +114,7 @@ function Initialize-LanPowerRuntime {
 }
 
 function Get-LanPowerRuntimeSnapshot {
-    $result = @{ lockState = 'ui-offline'; mediaVersion = 'none'; mediaPort = 0; mediaCertSha256 = ''; available = $false }
+    $result = @{ lockState = 'ui-offline'; mediaVersion = 'none'; mediaPort = 0; mediaCertSha256 = ''; available = $false; sessionInfo = '' }
     if ($script:DisplayRuntime) {
         try {
             $snapshot = $script:DisplayRuntime.Snapshot()
@@ -123,6 +123,7 @@ function Get-LanPowerRuntimeSnapshot {
             $result.mediaPort = [int]$snapshot.MediaPort
             $result.mediaCertSha256 = [string]$snapshot.MediaCertSha256
             $result.available = $true
+            $result.sessionInfo = [string]$snapshot.SessionDescription
         }
         catch { }
     }
@@ -437,7 +438,8 @@ try {
                     }
                     $updateSignature = Get-HmacBase64 $config.managementKey "update`n$($message.nonce)`n$($config.deviceId)`n$AgentVersionCode`n$($update.latestVersion)`n$($update.status)`n$($update.message)"
                     $lockSignature = Get-HmacBase64 $config.managementKey "lockstate`n$($message.nonce)`n$($config.deviceId)`n$($display.lockState)`n$($display.mediaVersion)`n$($display.mediaPort)`n$($display.mediaCertSha256)"
-                    $runtimeSignature = Get-HmacBase64 $config.managementKey "runtime`n$($message.nonce)`n$($config.deviceId)`n$script:RuntimeStatus`n$script:RuntimeMessage"
+                    $responseRuntimeMessage = if ($script:RuntimeStatus -eq 'ready' -and $display.ContainsKey('sessionInfo') -and $display.sessionInfo) { [string]$display.sessionInfo } else { $script:RuntimeMessage }
+                    $runtimeSignature = Get-HmacBase64 $config.managementKey "runtime`n$($message.nonce)`n$($config.deviceId)`n$script:RuntimeStatus`n$responseRuntimeMessage"
                     Send-JsonDatagram -Client $udp -Remote $remote -Value ([ordered]@{
                         type = 'discovery'
                         requestNonce = $message.nonce
@@ -448,7 +450,7 @@ try {
                         uwf = $uwfState
                         capabilities = $capabilities
                         runtimeStatus = $script:RuntimeStatus
-                        runtimeMessage = $script:RuntimeMessage
+                        runtimeMessage = $responseRuntimeMessage
                         runtimeSignature = $runtimeSignature
                         stateSignature = $stateSignature
                         clientVersionCode = $AgentVersionCode

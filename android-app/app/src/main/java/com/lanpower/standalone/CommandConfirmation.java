@@ -8,6 +8,12 @@ final class CommandConfirmation {
             String state = "lock".equals(action) ? "locked" : "unlocked";
             if (!message.startsWith("LOCK_CONFIRMED:" + state + ";")
                     && !message.equals("Room TN20 display " + state + "; the interactive player confirmed the screen.")) return false;
+            int session = message.indexOf("SESSION_INFO:");
+            if (session >= 0) {
+                device.runtimeMessage = message.substring(session + "SESSION_INFO:".length()).trim();
+                device.runtimeAuthenticated = true;
+                device.runtimeStatus = "ready";
+            }
             device.lockAuthenticated = true;
             device.lockState = state;
             return true;
@@ -38,6 +44,6 @@ final class CommandConfirmation {
     static String description(String action, ManagedDevice actual) {
         if ("wake".equals(action)) return actual.stateAuthenticated ? "Máy đã online" : "Chưa có trạng thái đã xác thực";
         if ("freeze".equals(action) || "unfreeze".equals(action)) return actual.uwfDescription();
-        return actual.lockDescription();
+        return actual.lockDescription() + (actual.runtimeAuthenticated && actual.runtimeMessage.startsWith("Phien ") ? " • " + actual.runtimeMessage : "");
     }
 }

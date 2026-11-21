@@ -60,7 +60,7 @@ async function startAgent(t, options = {}) {
       client.send(bytes, port, '127.0.0.1');
     });
   }
-  return { key, deviceId, child, exchange, output: () => output, errors: () => errors };
+  return { key, deviceId, child, root, exchange, output: () => output, errors: () => errors };
 }
 
 test('ghosted agents keep their room key but advertise distinct stable hardware identities', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
@@ -93,7 +93,7 @@ test('real agent ignores malformed, oversized, unsigned and wrongly signed disco
   assert.deepEqual(new Set(reply.capabilities.split(',')), new Set(['power', 'uwf', 'wolrelay', 'sessionlock', 'media', 'mediasync', 'desktopactions', 'desktopretry', 'boot-638000000000000000', 'updatecontrol', 'commandretry', 'fastcommands']));
   assert.equal(reply.stateSignature, sign(agent.key, `state\n${nonce}\n${reply.deviceId}\n${reply.agentVersion}\n${reply.uwf}\n${reply.capabilities}`));
   assert.equal(reply.lockSignature, sign(agent.key, `lockstate\n${nonce}\n${reply.deviceId}\n${reply.lockState}\n${reply.mediaVersion}\n${reply.mediaPort}\n${reply.mediaCertSha256}`));
-  assert.equal(reply.clientVersionCode, 25);
+  assert.equal(reply.clientVersionCode, 26);
   assert.equal(reply.runtimeStatus, 'ready');
   assert.equal(reply.runtimeSignature, sign(agent.key, `runtime\n${nonce}\n${reply.deviceId}\n${reply.runtimeStatus}\n${reply.runtimeMessage}`));
   assert.equal(reply.updateSignature, sign(agent.key, `update\n${nonce}\n${reply.deviceId}\n${reply.clientVersionCode}\n${reply.latestVersion}\n${reply.updateStatus}\n${reply.updateMessage}`));
@@ -294,4 +294,21 @@ test('MAC-bound commands cannot control a cloned ID at the wrong endpoint identi
   assert.equal(reply.status, 'accepted');
   assert.match(reply.message, /^LOCK_CONFIRMED:locked;/);
   assert.deepEqual(await agent.exchange(request, 3000), reply);
+});
+
+
+test('signed session metadata and command confirmation follow console to RDP and back', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
+  const agent = await startAgent(t);
+  for (const [session, action] of [['Phien Console #1', 'lock'], ['Phien RDP #2', 'unlock'], ['Phien Console #1', 'lock']]) {
+    await fs.writeFile(path.join(agent.root, 'session-info'), session);
+    const nonce = crypto.randomUUID();
+    const reply = await agent.exchange({ type: 'discover', nonce, signature: sign(agent.key, 'discover\n' + nonce) }, 3000);
+    assert.equal(reply.runtimeMessage, session);
+    assert.equal(reply.runtimeSignature, sign(agent.key, ['runtime', nonce, reply.deviceId, reply.runtimeStatus, session].join('\n')));
+    const request = command(agent.key, agent.deviceId, { action });
+    const result = await agent.exchange(request, 3000);
+    assert.equal(result.status, 'accepted');
+    assert.ok(result.message.endsWith('SESSION_INFO:' + session));
+    assert.equal(result.detailSignature, sign(agent.key, ['ack-detail', request.requestId, 'accepted', result.message].join('\n')));
+  }
 });

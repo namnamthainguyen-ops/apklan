@@ -17,8 +17,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
-[assembly: System.Reflection.AssemblyVersion("1.4.11.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.11.0")]
+[assembly: System.Reflection.AssemblyVersion("1.4.12.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.12.0")]
 [assembly: System.Reflection.AssemblyProduct("Room TN20")]
 [assembly: System.Reflection.AssemblyCompany("Công ty TNHH TN20")]
 [assembly: System.Reflection.AssemblyTitle("Room TN20 Runtime")]
@@ -34,6 +34,7 @@ namespace RoomTN20.Runtime
         public int MediaPort { get; internal set; }
         public string MediaCertSha256 { get; internal set; }
         public int PlayerCount { get; internal set; }
+        public string SessionDescription { get; internal set; }
     }
     public sealed class MediaUploadDescriptor
     {
@@ -85,7 +86,7 @@ namespace RoomTN20.Runtime
             if (!File.Exists(playerPath)) throw new InvalidOperationException("RUNTIME_PLAYER_MISSING");
             root = Path.GetDirectoryName(playerPath);
             ThreadPool.QueueUserWorkItem(delegate { AcceptPlayers(); });
-            timer = new Timer(delegate { Tick(); }, null, 1000, 3000);
+            timer = new Timer(delegate { Tick(); }, null, 1000, 1000);
         }
 
         public bool MediaAvailable { get { return listener != null; } }
@@ -169,13 +170,13 @@ namespace RoomTN20.Runtime
         {
             lock (gate)
             {
-                uint session = WTSGetActiveConsoleSessionId();
+                uint session = GetInteractiveSessionId();
                 PlayerConnection current = players.Find(delegate(PlayerConnection player) { return player.SessionId == session; });
-                string unavailable = HasConsoleUser(session) ? "ui-offline" : "signed-out";
+                string unavailable = "ui-offline"; // No active player does not mean the user logged out (RDP may be disconnected).
                 return new RuntimeSnapshot { DesiredLocked = desiredLocked, LockState = current == null || current.Unavailable || (DateTime.UtcNow - current.LastAckUtc).TotalSeconds > 10 ? unavailable :
                     current.WindowsLocked ? "windows-locked" :
                     current.Generation != generation ? "pending" : current.ReportedLocked ? "locked" : "unlocked",
-                    MediaVersion = MediaAvailable ? DataFiles.CurrentVersion(root) : "none", MediaPort = port, MediaCertSha256 = pin ?? "", PlayerCount = players.Count };
+                    MediaVersion = MediaAvailable ? DataFiles.CurrentVersion(root) : "none", MediaPort = port, MediaCertSha256 = pin ?? "", PlayerCount = players.Count, SessionDescription = DescribeSession(session) };
             }
         }
         private static bool HasConsoleUser(uint session)
@@ -183,7 +184,7 @@ namespace RoomTN20.Runtime
             if (session == 0 || session == UInt32.MaxValue) return false;
             IntPtr buffer;
             int bytes;
-            if (!WTSQuerySessionInformation(IntPtr.Zero, session, 5, out buffer, out bytes)) return true;
+            if (!WTSQuerySessionInformation(IntPtr.Zero, session, 5, out buffer, out bytes)) return false;
             try { return bytes > 2 && !String.IsNullOrEmpty(Marshal.PtrToStringUni(buffer)); }
             finally { WTSFreeMemory(buffer); }
         }
@@ -205,6 +206,7 @@ namespace RoomTN20.Runtime
                 requestGeneration = generation;
                 Broadcast();
             }
+            GetInteractiveSessionId(true);
             EnsurePlayer(true);
             DateTime deadline = DateTime.UtcNow.AddMilliseconds(1200);
             while (DateTime.UtcNow < deadline)
@@ -212,15 +214,15 @@ namespace RoomTN20.Runtime
                 lock (gate)
                 {
                     if (generation != requestGeneration) throw new InvalidOperationException("LOCK_REQUEST_SUPERSEDED");
-                    uint session = WTSGetActiveConsoleSessionId();
+                    uint session = GetInteractiveSessionId();
                     PlayerConnection current = players.Find(delegate(PlayerConnection player) { return player.SessionId == session; });
                     if (current != null && !current.Unavailable && !current.WindowsLocked && current.Generation == requestGeneration && current.ReportedLocked == locked)
-                        return locked ? "Room TN20 display locked; the interactive player confirmed the screen." : "Room TN20 display unlocked; the interactive player confirmed the screen.";
+                        return (locked ? "Room TN20 display locked; the interactive player confirmed the screen." : "Room TN20 display unlocked; the interactive player confirmed the screen.") + " SESSION_INFO:" + DescribeSession(session);
                 }
                 lock (gate) { Monitor.Wait(gate, 50); Broadcast(); }
             }
-            uint active = WTSGetActiveConsoleSessionId();
-            if(active==0 || active==UInt32.MaxValue) throw new InvalidOperationException("LOCK_NO_CONSOLE_USER: No signed-in console session is available. Desired state was saved.");
+            uint active = GetInteractiveSessionId();
+            if(active==0 || active==UInt32.MaxValue) throw new InvalidOperationException("LOCK_PLAYER_UNCONFIRMED: " + DescribeSession(active) + ". Desired state was saved.");
             lock(gate) throw new InvalidOperationException("LOCK_PLAYER_UNCONFIRMED: session=" + active + "; " + playerIssue + ". Desired state saved; display has not confirmed.");
         }
         private void Tick()
@@ -252,7 +254,7 @@ namespace RoomTN20.Runtime
         {
             lock (gate)
             {
-                uint session = WTSGetActiveConsoleSessionId();
+                uint session = GetInteractiveSessionId(force);
                 if (disposed || session == UInt32.MaxValue || session == 0 || players.Exists(delegate(PlayerConnection player) { return player.SessionId == session; }) ||
                     (!force && lastLaunchSession == session && (DateTime.UtcNow - lastLaunch).TotalSeconds < 5)) return;
                 lastLaunchSession = session;
@@ -295,8 +297,9 @@ namespace RoomTN20.Runtime
             {
                 lock (gate)
                 {
-                    uint session = WTSGetActiveConsoleSessionId();
+                    uint session = GetInteractiveSessionId();
                     if (desiredLocked) throw new InvalidOperationException("DESKTOP_SCREEN_LOCKED");
+                    if (session == UInt32.MaxValue) throw new InvalidOperationException("DESKTOP_SESSION_AMBIGUOUS");
                     if (!HasConsoleUser(session)) throw new InvalidOperationException("DESKTOP_NO_USER");
                     var candidate = players.Find(delegate(PlayerConnection p) { return p.SessionId == session && !p.Unavailable && !p.WindowsLocked && !p.ReportedLocked && p.Generation == generation && (DateTime.UtcNow - p.LastAckUtc).TotalSeconds <= 10; });
                     if (candidate != null && Interlocked.CompareExchange(ref candidate.WriterBusy, 1, 0) == 0) target = candidate;
@@ -785,7 +788,67 @@ namespace RoomTN20.Runtime
             finally { CloseHandle(process); }
         }
         [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetNamedPipeClientProcessId(IntPtr pipe, out uint processId);
-        [DllImport("kernel32.dll")] private static extern uint WTSGetActiveConsoleSessionId();
+        private static readonly object sessionGate = new object();
+        private static DateTime sessionChecked = DateTime.MinValue;
+        private static uint selectedSession;
+        public static uint SelectInteractiveSession(uint[] ids, bool[] active, bool[] signedIn)
+        {
+            if (ids == null || active == null || signedIn == null || ids.Length != active.Length || ids.Length != signedIn.Length)
+                throw new ArgumentException("SESSION_TABLE_INVALID");
+            uint selected = 0;
+            for (int i = 0; i < ids.Length; i++)
+            {
+                if (ids[i] == 0 || ids[i] == UInt32.MaxValue || !active[i] || !signedIn[i]) continue;
+                if (selected != 0 && selected != ids[i]) return UInt32.MaxValue;
+                selected = ids[i];
+            }
+            return selected;
+        }
+        private static uint GetInteractiveSessionId(bool refresh = false)
+        {
+            lock (sessionGate)
+            {
+                if (!refresh && (DateTime.UtcNow - sessionChecked).TotalMilliseconds < 250) return selectedSession;
+                IntPtr buffer;
+                int count;
+                if (!WTSEnumerateSessions(IntPtr.Zero, 0, 1, out buffer, out count)) return UInt32.MaxValue;
+                try
+                {
+                    if (count < 0 || count > 1024) return UInt32.MaxValue;
+                    uint[] ids = new uint[count]; bool[] active = new bool[count]; bool[] signedIn = new bool[count];
+                    int size = Marshal.SizeOf(typeof(WTS_SESSION_INFO));
+                    for (int i = 0; i < count; i++)
+                    {
+                        WTS_SESSION_INFO entry = (WTS_SESSION_INFO)Marshal.PtrToStructure(IntPtr.Add(buffer, i * size), typeof(WTS_SESSION_INFO));
+                        ids[i] = entry.SessionId;
+                        active[i] = entry.State == 0; // WTSActive, including RDP; WTSDisconnected is excluded.
+                        signedIn[i] = active[i] && HasConsoleUser(ids[i]);
+                    }
+                    selectedSession = SelectInteractiveSession(ids, active, signedIn);
+                    sessionChecked = DateTime.UtcNow;
+                    return selectedSession;
+                }
+                finally { WTSFreeMemory(buffer); }
+            }
+        }
+        public static string InspectInteractiveSession() { return DescribeSession(GetInteractiveSessionId(true)); }
+        private static string DescribeSession(uint session)
+        {
+            if (session == UInt32.MaxValue) return "Chua chon phien: nhieu phien dang hoat dong hoac khong doc duoc danh sach";
+            if (session == 0) return "Chua co phien nguoi dung dang hoat dong";
+            IntPtr buffer; int bytes;
+            string type = "Interactive";
+            if (WTSQuerySessionInformation(IntPtr.Zero, session, 16, out buffer, out bytes))
+            {
+                try { if (bytes >= 2) { int protocol = (ushort)Marshal.ReadInt16(buffer); type = protocol == 2 ? "RDP" : protocol == 0 ? "Console" : "Remote"; } }
+                finally { WTSFreeMemory(buffer); }
+            }
+            return "Phien " + type + " #" + session;
+        }
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct WTS_SESSION_INFO { internal uint SessionId; internal IntPtr StationName; internal int State; }
+        [DllImport("wtsapi32.dll", EntryPoint = "WTSEnumerateSessionsW", SetLastError = true)]
+        private static extern bool WTSEnumerateSessions(IntPtr server, int reserved, int version, out IntPtr sessions, out int count);
         [DllImport("wtsapi32.dll", SetLastError = true)] private static extern bool WTSQueryUserToken(uint sessionId, out IntPtr token);
         [DllImport("userenv.dll", SetLastError = true)] private static extern bool CreateEnvironmentBlock(out IntPtr environment, IntPtr token, bool inherit);
         [DllImport("userenv.dll")] private static extern bool DestroyEnvironmentBlock(IntPtr environment);

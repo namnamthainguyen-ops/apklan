@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
@@ -7,6 +8,7 @@ using RoomTN20.Runtime;
 
 internal static class RuntimeUnit
 {
+    [DllImport("kernel32.dll")] private static extern uint WTSGetActiveConsoleSessionId();
     private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
     private static string Hash(byte[] bytes) { using (SHA256 sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant(); }
     private static void Reject(Action action, string name) { try { action(); } catch { return; } throw new Exception("Expected rejection: " + name); }
@@ -14,6 +16,18 @@ internal static class RuntimeUnit
     {
         try
         {
+            if (Controller.SelectInteractiveSession(new uint[] { 0, 1, 2 }, new bool[] { true, false, true }, new bool[] { false, true, true }) != 2)
+                throw new Exception("Active RDP session must replace disconnected console.");
+            if (Controller.SelectInteractiveSession(new uint[] { 1, 2 }, new bool[] { true, false }, new bool[] { true, true }) != 1)
+                throw new Exception("Reconnect to physical console must replace disconnected RDP.");
+            if (Controller.SelectInteractiveSession(new uint[] { 0, 1, 2 }, new bool[] { true, false, false }, new bool[] { true, true, true }) != 0)
+                throw new Exception("Services and disconnected sessions must not be selected.");
+            if (Controller.SelectInteractiveSession(new uint[] { 1, 2 }, new bool[] { true, true }, new bool[] { true, true }) != UInt32.MaxValue)
+                throw new Exception("Multiple active users must not be chosen arbitrarily.");
+            Reject(delegate { Controller.SelectInteractiveSession(new uint[] { 1 }, new bool[0], new bool[0]); }, "invalid session table");
+            Console.WriteLine("SESSION_POLICY=PASS (RDP, console reconnect, disconnected users, services and ambiguity)");
+            Console.WriteLine("SESSION_NATIVE_READONLY=" + Controller.InspectInteractiveSession());
+            Console.WriteLine("PHYSICAL_CONSOLE_READONLY=" + WTSGetActiveConsoleSessionId());
             string version = new string('a', 32);
             string id = new string('b', 64);
             string device = "2bdf5c5f-d305-4482-b563-b399b57ff0d5";
